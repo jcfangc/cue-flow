@@ -841,22 +841,22 @@ CueFlow 应该允许运行在已有 transport 上。
 
 ---
 
-## 17. 与 Rivet 的关系
+## 17. 与 Setpoint 的关系
 
-CueFlow 和 Rivet 是两个独立项目。
+CueFlow 和 Setpoint 是两个独立项目。
 
-CueFlow 不以 Rivet 为唯一使用场景。
+CueFlow 不以 Setpoint 为唯一使用场景。
 
-Rivet 也不能依赖 CueFlow 才能继续开发。
+Setpoint 也不能依赖 CueFlow 才能继续开发。
 
 两者未来最自然的交汇点是：
 
 ```text
-Rivet Control Plane
+Setpoint Control Plane
         ↕
      CueFlow
         ↕
-Rivet Node Agent
+Setpoint Node Agent
 ```
 
 这可以验证 CueFlow 是否真正适合长生命周期、有状态、双向的系统协议。
