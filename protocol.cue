@@ -9,6 +9,6 @@ package cueflow
 }
 
 #Protocol: {
-	initial: #StateID
-	states: [#StateID]: #State
+	initial!: #StateID
+	states!: [#StateID]: #State
 }
