@@ -1,3 +1,5 @@
+// 文件职责：把协议名称映射成合法且无冲突的 Rust 类型、字段和方法名。
+// 此处也协调 schema.go 的 Rust 消息字段降级结果，供 generate.go 使用。
 package rust
 
 import (

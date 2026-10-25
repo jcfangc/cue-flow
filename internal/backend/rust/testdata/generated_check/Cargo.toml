@@ -1,0 +1,10 @@
+# 这是 Rust backend 生成代码的临时验证工程模板；test_compiler.py 会复制它并写入生成的 src/lib.rs。
+[package]
+name = "cueflow-generated-check"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

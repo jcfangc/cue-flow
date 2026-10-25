@@ -1,3 +1,5 @@
+// 文件职责：将已检查的协议组装为 Rust 模块源码，包括消息、Transport API 和双方状态接口。
+// Rust 字段类型先由 schema.go 降级，Rust 标识符映射由 names.go 负责。
 package rust
 
 import (

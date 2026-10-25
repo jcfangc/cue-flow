@@ -6,8 +6,18 @@ import (
 	"os"
 	"path/filepath"
 
+	pythonbackend "github.com/jcfangc/cue-flow/internal/backend/python"
 	rustbackend "github.com/jcfangc/cue-flow/internal/backend/rust"
 	"github.com/jcfangc/cue-flow/internal/compiler"
+)
+
+type targetLanguage string
+
+const (
+	rustLanguage     targetLanguage = "rust"
+	pythonLanguage   targetLanguage = "python"
+	rustOutputPath                  = "./generated/cueflow.rs"
+	pythonOutputPath                = "./generated/cueflow.py"
 )
 
 func main() {
@@ -25,15 +35,19 @@ func run(args []string) error {
 	command := args[0]
 	args = args[1:]
 	var generate func(*compiler.Protocol) (string, error)
+	outputDefault := rustOutputPath
 	if command == "generate" {
 		if len(args) == 0 {
-			return fmt.Errorf("usage: cueflow generate rust [flags]")
+			return fmt.Errorf("usage: cueflow generate {rust|python} [flags]")
 		}
-		language := args[0]
+		language := targetLanguage(args[0])
 		args = args[1:]
 		switch language {
-		case "rust":
+		case rustLanguage:
 			generate = rustbackend.Generate
+		case pythonLanguage:
+			generate = pythonbackend.Generate
+			outputDefault = pythonOutputPath
 		default:
 			return fmt.Errorf("unsupported code generation language %q", language)
 		}
@@ -43,7 +57,7 @@ func run(args []string) error {
 
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	input := flags.String("input", "./cue/examples", "directory containing the CUE package")
-	output := flags.String("output", "./generated/cueflow.rs", "Rust output path (generate rust only)")
+	output := flags.String("output", outputDefault, "generated source file path")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -86,5 +100,5 @@ func run(args []string) error {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: cueflow check [--input package-dir] | cueflow generate rust [--input package-dir] [--output file]")
+	return fmt.Errorf("usage: cueflow check [--input package-dir] | cueflow generate {rust|python} [--input package-dir] [--output file]")
 }

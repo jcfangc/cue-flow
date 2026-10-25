@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Go, CUE, Rust, Python, and interop checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install CUE CLI
+        run: |
+          go install cuelang.org/go/cmd/cue@v0.17.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Fetch Rust test dependencies
+        run: cargo fetch --manifest-path internal/backend/rust/testdata/generated_check/Cargo.toml
+
+      - name: Test Go compiler
+        run: go test ./...
+
+      - name: Test CUE schema
+        run: uv run --python 3.13 -- python scripts/test_schema.py
+
+      - name: Test Rust backend
+        run: uv run --python 3.13 -- python scripts/test_compiler.py
+
+      - name: Test Python backend
+        run: uv run --python 3.13 --with 'pydantic>=2,<3' --with mypy -- python scripts/test_python.py
+
+      - name: Test Rust and Python interoperability
+        run: uv run --python 3.13 --with 'pydantic>=2,<3' -- python scripts/test_interop.py
+
+  release:
+    name: Build and publish CLI binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build release binaries
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            goos="${target%%/*}"
+            goarch="${target#*/}"
+            suffix=""
+            if [ "$goos" = windows ]; then
+              suffix=".exe"
+            fi
+            output="dist/cueflow-${RELEASE_TAG}-${goos}-${goarch}${suffix}"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="-s -w" -o "$output" ./cmd/cueflow
+          done
+          (cd dist && sha256sum cueflow-* > SHA256SUMS)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
