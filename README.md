@@ -2,6 +2,21 @@
 
 CueFlow describes message constraints in CUE and communication order as a server-local finite state machine. The compiler loads CUE through the official Go API and generates Rust or Python server/client state APIs.
 
+## Download a release
+
+Download the binary for your operating system and CPU from the [latest GitHub Release](https://github.com/jcfangc/cue-flow/releases/latest). Asset names use `cueflow-vX.Y.Z-<os>-<arch>`; Windows binaries end in `.exe`. The release also includes `SHA256SUMS` for checking the downloaded binary. A downloaded binary does not require Go or the CUE CLI to run.
+
+For example, after downloading the Linux amd64 binary:
+
+```sh
+chmod +x ./cueflow-vX.Y.Z-linux-amd64
+./cueflow-vX.Y.Z-linux-amd64 check --input ./path/to/cue-package
+./cueflow-vX.Y.Z-linux-amd64 generate rust --input ./path/to/cue-package --output ./generated/cueflow.rs
+./cueflow-vX.Y.Z-linux-amd64 generate python --input ./path/to/cue-package --output ./generated/cueflow.py
+```
+
+Replace `X.Y.Z` with the release version and the input path with a directory containing the user's CUE package. Windows users can invoke the matching `.exe` asset with the same subcommands and flags.
+
 ## Commands
 
 Check a CUE package:
