@@ -44,6 +44,9 @@ func lowerRustNames(p *Protocol) (*rustNames, error) {
 			return nil, fmt.Errorf("message %q: %w", message.ID, err)
 		}
 		typeName := pascalCase(message.ID)
+		if !isRustIdentifier(typeName) {
+			return nil, fmt.Errorf("message ID %q maps to invalid Rust type name %q", message.ID, typeName)
+		}
 		if err := registerRustName(messageNames, typeName, message.ID, "message type"); err != nil {
 			return nil, err
 		}
@@ -61,6 +64,9 @@ func lowerRustNames(p *Protocol) (*rustNames, error) {
 	}
 	for _, state := range p.States {
 		stateName := pascalCase(state.ID)
+		if !isRustIdentifier(stateName) {
+			return nil, fmt.Errorf("state ID %q maps to invalid Rust type name %q", state.ID, stateName)
+		}
 		if _, reserved := reservedStateNames[stateName]; reserved {
 			return nil, fmt.Errorf("state ID %q maps to reserved generated Rust name %q", state.ID, stateName)
 		}
@@ -82,8 +88,8 @@ func lowerRustFields(names *rustNames, message *rustMessage) error {
 	for i := range message.Fields {
 		field := &message.Fields[i]
 		fieldName := rustField(snakeCase(field.Name))
-		if fieldName == "" {
-			return fmt.Errorf("field %q cannot be mapped to a Rust identifier", field.Name)
+		if !isRustIdentifier(fieldName) {
+			return fmt.Errorf("field %q cannot be mapped to a valid Rust identifier", field.Name)
 		}
 		if err := registerRustName(fieldNames, fieldName, field.Name, "field"); err != nil {
 			return fmt.Errorf("message %q: %w", message.ID, err)
@@ -96,6 +102,9 @@ func lowerRustFields(names *rustNames, message *rustMessage) error {
 }
 
 func lowerRustMethods(names *rustNames, state State) error {
+	if len(state.Receives) > 1 {
+		return fmt.Errorf("state %q has multiple receive transitions, unsupported by the Rust backend", state.ID)
+	}
 	serverMethods := map[string]string{"recv_close": "implicit Close"}
 	clientMethods := map[string]string{"recv_close": "implicit Close"}
 	names.serverSendMethods[state.ID] = make(map[string]string, len(state.Sends))
@@ -226,6 +235,10 @@ func isRustIdent(input string) bool {
 		return false
 	}
 	return true
+}
+
+func isRustIdentifier(input string) bool {
+	return input != "_" && isRustIdent(input) && !isRustKeyword(input)
 }
 
 func rustField(name string) string {
