@@ -7,7 +7,7 @@ protocol: flow.#Protocol & {
 	initial: "Ready"
 	states: {
 		Ready: {
-			close: "yes"
+			close: true
 		}
 	}
 }

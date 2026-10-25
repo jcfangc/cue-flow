@@ -1,10 +1,11 @@
-package examples
+package testdata
 
 import flow "github.com/jcfangc/cue-flow:cueflow"
 
 #Query: {
 	id:       string & !=""
 	sequence: string & =~"^[ACGT]+$"
+	topK:     int & >=1 & <=100
 }
 
 #Result: {
@@ -23,7 +24,6 @@ protocol: flow.#Protocol & {
 			send: {
 				Query: "Waiting"
 			}
-			close: true
 		}
 		Waiting: {
 			recv: {
@@ -33,13 +33,8 @@ protocol: flow.#Protocol & {
 	}
 }
 
-sample: {
-	query: protocol.messages.Query & {
-		id:       "q1"
-		sequence: "ACGT"
-	}
-	result: protocol.messages.Result & {
-		id:     "q1"
-		result: "matched"
-	}
+sample: protocol.messages.Query & {
+	id:       "q1"
+	sequence: "ACNT"
+	topK:     5
 }
