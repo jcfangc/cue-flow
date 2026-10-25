@@ -6,6 +6,8 @@ CueFlow describes message constraints in CUE and communication order as a server
 
 Download the binary for your operating system and CPU from the [latest GitHub Release](https://github.com/jcfangc/cue-flow/releases/latest). Asset names use `cueflow-vX.Y.Z-<os>-<arch>`; Windows binaries end in `.exe`. The release also includes `SHA256SUMS` for checking the downloaded binary. A downloaded binary does not require Go or the CUE CLI to run.
 
+The root `VERSION` file is the source of release versions. When a new `vMAJOR.MINOR.PATCH` value reaches `main`, CI creates the matching Git tag and release after all checks pass. Existing release versions are skipped; do not create release tags manually.
+
 For example, after downloading the Linux amd64 binary:
 
 ```sh
