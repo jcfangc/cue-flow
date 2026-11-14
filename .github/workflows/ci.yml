@@ -73,6 +73,11 @@ jobs:
           uv run --python 3.13 --with 'pydantic>=2,<3' --with 'websockets>=14'
           --with mypy -- python scripts/test_websocket_binding.py
 
+      - name: Test endpoint-aware generation
+        run: >-
+          uv run --python 3.13 --with 'pydantic>=2,<3' --with mypy
+          -- python scripts/test_endpoint_generation.py
+
   release:
     name: Build and publish CLI binaries
     if: github.ref == 'refs/heads/main'

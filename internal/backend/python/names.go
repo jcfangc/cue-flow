@@ -143,9 +143,6 @@ func lowerStateClasses(names *pythonNames, protocol *Protocol, usedTypes map[str
 }
 
 func lowerStateMethods(names *pythonNames, state State) error {
-	if len(state.Receives) > 1 {
-		return fmt.Errorf("state %q has multiple receive transitions, unsupported by the Python backend", state.ID)
-	}
 	server, client := initialMethods(), initialMethods()
 	names.serverSend[state.ID] = make(map[string]string, len(state.Sends))
 	names.clientReceive[state.ID] = make(map[string]string, len(state.Sends))

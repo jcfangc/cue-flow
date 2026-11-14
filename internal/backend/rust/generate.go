@@ -30,6 +30,9 @@ func GenerateWithOptions(p *Protocol, options backend.GenerateOptions) (string, 
 	if err := compiler.Check(p); err != nil {
 		return "", err
 	}
+	if err := options.ValidateProtocol(p); err != nil {
+		return "", err
+	}
 	names, err := lowerRustNames(p)
 	if err != nil {
 		return "", err

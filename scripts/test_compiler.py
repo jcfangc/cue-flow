@@ -101,7 +101,7 @@ def check_backend_boundaries(generator: Path, directory: Path) -> None:
         generator,
         directory,
         "multiple_receives",
-        "state \"Ready\" has multiple receive transitions, unsupported by the Rust backend",
+        "state \"Ready\" has multiple server receive transitions, ambiguous for endpoint \"both\"",
     )
     check_backend_failure(
         generator,

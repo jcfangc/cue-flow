@@ -30,6 +30,9 @@ func GenerateWithOptions(protocol *Protocol, options backend.GenerateOptions) (s
 	if err := compiler.Check(protocol); err != nil {
 		return "", err
 	}
+	if err := options.ValidateProtocol(protocol); err != nil {
+		return "", err
+	}
 	names, err := lowerPythonNames(protocol)
 	if err != nil {
 		return "", err

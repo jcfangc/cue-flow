@@ -1,7 +1,11 @@
 // Package backend defines the language-independent choices for generated APIs.
 package backend
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/jcfangc/cue-flow/internal/compiler"
+)
 
 type Endpoint string
 type Runtime string
@@ -66,6 +70,26 @@ func (options GenerateOptions) ValidateRuntime(expected Runtime) error {
 	)
 }
 
+func (options GenerateOptions) ValidateProtocol(protocol *compiler.Protocol) error {
+	for _, state := range protocol.States {
+		if options.generatesServer() && len(state.Receives) > 1 {
+			return fmt.Errorf(
+				"state %q has multiple server receive transitions, ambiguous for endpoint %q",
+				state.ID,
+				options.Endpoint,
+			)
+		}
+		if options.generatesClient() && len(state.Sends) > 1 {
+			return fmt.Errorf(
+				"state %q has multiple server send transitions, ambiguous for endpoint %q",
+				state.ID,
+				options.Endpoint,
+			)
+		}
+	}
+	return nil
+}
+
 func (options GenerateOptions) validateEndpoint() error {
 	if options.Endpoint == "" {
 		return fmt.Errorf("endpoint must be client, server, or both")
@@ -76,4 +100,12 @@ func (options GenerateOptions) validateEndpoint() error {
 		return fmt.Errorf("unsupported endpoint %q", options.Endpoint)
 	}
 	return nil
+}
+
+func (options GenerateOptions) generatesServer() bool {
+	return options.Endpoint == ServerEndpoint || options.Endpoint == BothEndpoints
+}
+
+func (options GenerateOptions) generatesClient() bool {
+	return options.Endpoint == ClientEndpoint || options.Endpoint == BothEndpoints
 }
