@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/jcfangc/cue-flow/internal/backend"
+	"github.com/jcfangc/cue-flow/internal/backend/schema"
 	"github.com/jcfangc/cue-flow/internal/compiler"
 )
 
@@ -114,44 +115,64 @@ pub trait Transport: Send {
 func writeMessages(out *bytes.Buffer, messages []rustMessage, names *rustNames) error {
 	out.WriteString("pub mod messages {\n\n")
 	for _, message := range messages {
-		writeMessage(out, message, names)
+		writeMessage(out, message)
 	}
 	out.WriteString("}\n\n")
 	return nil
 }
 
-func writeMessage(out *bytes.Buffer, message rustMessage, names *rustNames) {
-	typeName := names.messageTypes[message.ID]
-	fmt.Fprintf(out, "    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n    #[serde(deny_unknown_fields)]\n    pub struct %s {\n", typeName)
+func writeMessage(out *bytes.Buffer, message rustMessage) {
 	for _, field := range message.Fields {
-		writeMessageField(out, field, names.fieldNames[message.ID][field.Name], names.fieldTypes[message.ID][field.Name])
+		writeNestedMessageTypes(out, field)
+	}
+	writeMessageStruct(out, message.TypeName, message.Fields)
+}
+
+func writeNestedMessageTypes(out *bytes.Buffer, field rustMessageField) {
+	if field.Kind != schema.Object {
+		return
+	}
+	for _, child := range field.Fields {
+		writeNestedMessageTypes(out, child)
+	}
+	writeMessageStruct(out, field.TypeName, field.Fields)
+}
+
+func writeMessageStruct(out *bytes.Buffer, typeName string, fields []rustMessageField) {
+	fmt.Fprintf(out, "    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n    #[serde(deny_unknown_fields)]\n    pub struct %s {\n", typeName)
+	for _, field := range fields {
+		writeMessageField(out, field)
 	}
 	out.WriteString("    }\n\n")
 	fmt.Fprintf(out, "    impl %s {\n        pub fn validate(&self) -> std::result::Result<(), super::ValidationError> {\n", typeName)
-	for _, field := range message.Fields {
-		writeFieldValidation(out, field, names.fieldNames[message.ID][field.Name])
+	for _, field := range fields {
+		writeFieldValidation(out, field)
 	}
 	out.WriteString("            Ok(())\n        }\n    }\n\n")
 }
 
-func writeMessageField(out *bytes.Buffer, field rustMessageField, fieldName, fieldType string) {
-	typ := fieldType
+func writeMessageField(out *bytes.Buffer, field rustMessageField) {
+	typ := field.RustType
 	if !field.Required {
 		typ = "Option<" + typ + ">"
 	}
 	if field.Required {
-		fmt.Fprintf(out, "        #[serde(rename = %s)]\n        pub %s: %s,\n", strconv.Quote(field.Name), fieldName, typ)
+		fmt.Fprintf(out, "        #[serde(rename = %s)]\n        pub %s: %s,\n", strconv.Quote(field.Name), field.RustName, typ)
 		return
 	}
 	// Optional CUE fields should be omitted on the wire when absent.
-	fmt.Fprintf(out, "        #[serde(rename = %s, default, deserialize_with = \"super::deserialize_present\", skip_serializing_if = \"Option::is_none\")]\n        pub %s: %s,\n", strconv.Quote(field.Name), fieldName, typ)
+	fmt.Fprintf(out, "        #[serde(rename = %s, default, deserialize_with = \"super::deserialize_present\", skip_serializing_if = \"Option::is_none\")]\n        pub %s: %s,\n", strconv.Quote(field.Name), field.RustName, typ)
 }
 
-func writeFieldValidation(out *bytes.Buffer, field rustMessageField, fieldName string) {
+func writeFieldValidation(out *bytes.Buffer, field rustMessageField) {
+	if field.Kind == schema.Object {
+		writeNestedFieldValidation(out, field)
+		return
+	}
 	if !field.RejectEmpty && field.Pattern == "" && field.MinLength == nil && field.MaxLength == nil && field.MinInt == nil {
 		return
 	}
-	access := "self." + fieldName
+	access := "self." + field.RustName
 	if !field.Required {
 		fmt.Fprintf(out, "            if let Some(value) = %s.as_ref() {\n", access)
 		access = "value"
@@ -161,6 +182,14 @@ func writeFieldValidation(out *bytes.Buffer, field rustMessageField, fieldName s
 	if !field.Required {
 		out.WriteString("            }\n")
 	}
+}
+
+func writeNestedFieldValidation(out *bytes.Buffer, field rustMessageField) {
+	if field.Required {
+		fmt.Fprintf(out, "            self.%s.validate()?;\n", field.RustName)
+		return
+	}
+	fmt.Fprintf(out, "            if let Some(value) = self.%s.as_ref() { value.validate()?; }\n", field.RustName)
 }
 
 func writeStringValidation(out *bytes.Buffer, field rustMessageField, access string) {

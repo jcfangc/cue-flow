@@ -21,30 +21,53 @@ func writeMessages(out *bytes.Buffer, names *pythonNames) error {
 }
 
 func writeMessage(out *bytes.Buffer, message schema.Message, names *pythonNames) error {
-	className := names.messageClasses[message.ID]
-	fmt.Fprintf(out, "class %s(_Message):\n", className)
-	if len(message.Fields) == 0 {
-		out.WriteString("    pass\n\n")
-		return nil
-	}
 	for _, field := range message.Fields {
-		if err := writeMessageField(out, message.ID, field, names.fieldNames[message.ID][field.Name]); err != nil {
+		if err := writeNestedModel(out, message.ID, field, field.Name, names); err != nil {
 			return err
 		}
 	}
-	for _, field := range message.Fields {
+	return writeModel(out, message.ID, names.messageClasses[message.ID], "", message.Fields, names)
+}
+
+func writeNestedModel(out *bytes.Buffer, messageID string, field schema.Field, path string, names *pythonNames) error {
+	if field.Kind != schema.Object {
+		return nil
+	}
+	for _, child := range field.Fields {
+		if err := writeNestedModel(out, messageID, child, fieldPath(path, child.Name), names); err != nil {
+			return err
+		}
+	}
+	return writeModel(out, messageID, names.nestedTypeNames[messageID][path], path, field.Fields, names)
+}
+
+func writeModel(out *bytes.Buffer, messageID, className, parentPath string, fields []schema.Field, names *pythonNames) error {
+	fmt.Fprintf(out, "class %s(_Message):\n", className)
+	if len(fields) == 0 {
+		out.WriteString("    pass\n\n")
+		return nil
+	}
+	for _, field := range fields {
+		path := fieldPath(parentPath, field.Name)
+		if err := writeMessageField(out, messageID, field, path, names); err != nil {
+			return fmt.Errorf("message %q field %q: %w", messageID, path, err)
+		}
+	}
+	for _, field := range fields {
 		if !field.Required {
-			writeOptionalFieldValidator(out, field, names.fieldNames[message.ID][field.Name])
+			fieldName := names.fieldNames[messageID][fieldPath(parentPath, field.Name)]
+			writeOptionalFieldValidator(out, field, fieldName)
 		}
 	}
 	out.WriteByte('\n')
 	return nil
 }
 
-func writeMessageField(out *bytes.Buffer, messageID string, field schema.Field, fieldName string) error {
-	lowered, err := pythonFieldType(field)
+func writeMessageField(out *bytes.Buffer, messageID string, field schema.Field, path string, names *pythonNames) error {
+	fieldName := names.fieldNames[messageID][path]
+	lowered, err := pythonFieldType(field, names.nestedTypeNames[messageID][path])
 	if err != nil {
-		return fmt.Errorf("message %q field %q: %w", messageID, field.Name, err)
+		return err
 	}
 	if !field.Required {
 		lowered.Type += " | None"
@@ -65,7 +88,7 @@ type pythonIntegerRange struct {
 	Maximum int64
 }
 
-func pythonFieldType(field schema.Field) (pythonFieldLowering, error) {
+func pythonFieldType(field schema.Field, nestedTypeName string) (pythonFieldLowering, error) {
 	result := pythonFieldLowering{Arguments: make([]string, 0, 3)}
 	switch field.Kind {
 	case schema.String:
@@ -99,6 +122,12 @@ func pythonFieldType(field schema.Field) (pythonFieldLowering, error) {
 		return result, nil
 	case schema.Boolean:
 		result.Type = "StrictBool"
+		return result, nil
+	case schema.Object:
+		if nestedTypeName == "" {
+			return pythonFieldLowering{}, fmt.Errorf("nested object field %q has no generated model", field.Name)
+		}
+		result.Type = nestedTypeName
 		return result, nil
 	case schema.Number:
 		return pythonFieldLowering{}, fmt.Errorf("number fields are not supported by the Python backend yet")

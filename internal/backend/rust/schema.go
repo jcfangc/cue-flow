@@ -19,8 +19,10 @@ type rustMessage struct {
 
 type rustMessageField struct {
 	Name        string
+	Kind        schema.Kind
 	RustName    string
 	RustType    string
+	TypeName    string
 	Required    bool
 	RejectEmpty bool
 	Pattern     string
@@ -28,6 +30,7 @@ type rustMessageField struct {
 	MaxLength   *int64
 	MinInt      *int64
 	MaxInt      *int64
+	Fields      []rustMessageField
 }
 
 type rustFieldLowering struct {
@@ -48,16 +51,32 @@ func parseRustMessage(ctx *cue.Context, message compiler.Message) (rustMessage, 
 	}
 	result := rustMessage{ID: common.ID}
 	for _, field := range common.Fields {
-		lowered, err := lowerRustField(field)
+		lowered, err := parseRustField(field)
 		if err != nil {
 			return rustMessage{}, fmt.Errorf("field %q: %w", field.Name, err)
 		}
-		result.Fields = append(result.Fields, rustMessageField{
-			Name: field.Name, RustName: snakeCase(field.Name), RustType: lowered.RustType,
-			Required: field.Required, RejectEmpty: field.RejectEmpty, Pattern: field.Pattern,
-			MinLength: field.MinLength, MaxLength: field.MaxLength,
-			MinInt: lowered.MinInt, MaxInt: lowered.MaxInt,
-		})
+		result.Fields = append(result.Fields, lowered)
+	}
+	return result, nil
+}
+
+func parseRustField(field schema.Field) (rustMessageField, error) {
+	lowered, err := lowerRustField(field)
+	if err != nil {
+		return rustMessageField{}, err
+	}
+	result := rustMessageField{
+		Name: field.Name, Kind: field.Kind, RustName: snakeCase(field.Name), RustType: lowered.RustType,
+		Required: field.Required, RejectEmpty: field.RejectEmpty, Pattern: field.Pattern,
+		MinLength: field.MinLength, MaxLength: field.MaxLength,
+		MinInt: lowered.MinInt, MaxInt: lowered.MaxInt,
+	}
+	for _, child := range field.Fields {
+		loweredChild, err := parseRustField(child)
+		if err != nil {
+			return rustMessageField{}, err
+		}
+		result.Fields = append(result.Fields, loweredChild)
 	}
 	return result, nil
 }
@@ -78,6 +97,8 @@ func lowerRustField(field schema.Field) (rustFieldLowering, error) {
 		}, nil
 	case schema.Boolean:
 		return rustFieldLowering{RustType: "bool"}, nil
+	case schema.Object:
+		return rustFieldLowering{}, nil
 	case schema.Number:
 		return rustFieldLowering{}, fmt.Errorf("number fields are not supported yet; CUE number precision is not lowered to f64")
 	default:

@@ -17,14 +17,15 @@ type Transition = compiler.Transition
 type Message = compiler.Message
 
 type pythonNames struct {
-	messages       []schema.Message
-	messageClasses map[string]string
-	stateClasses   map[string]map[string]string
-	fieldNames     map[string]map[string]string
-	serverSend     map[string]map[string]string
-	serverReceive  map[string]map[string]string
-	clientSend     map[string]map[string]string
-	clientReceive  map[string]map[string]string
+	messages        []schema.Message
+	messageClasses  map[string]string
+	stateClasses    map[string]map[string]string
+	fieldNames      map[string]map[string]string
+	nestedTypeNames map[string]map[string]string
+	serverSend      map[string]map[string]string
+	serverReceive   map[string]map[string]string
+	clientSend      map[string]map[string]string
+	clientReceive   map[string]map[string]string
 }
 
 func lowerPythonNames(protocol *Protocol) (*pythonNames, error) {
@@ -45,7 +46,7 @@ func lowerPythonNames(protocol *Protocol) (*pythonNames, error) {
 		}
 		names.messageClasses[message.ID] = className
 		names.messages = append(names.messages, lowered)
-		if err := lowerPythonFields(names, lowered); err != nil {
+		if err := lowerPythonFields(names, lowered, className, usedTypes); err != nil {
 			return nil, err
 		}
 	}
@@ -57,13 +58,14 @@ func lowerPythonNames(protocol *Protocol) (*pythonNames, error) {
 
 func newPythonNames(protocol *Protocol) *pythonNames {
 	return &pythonNames{
-		messageClasses: make(map[string]string, len(protocol.Messages)),
-		stateClasses:   map[string]map[string]string{"server": {}, "client": {}},
-		fieldNames:     make(map[string]map[string]string, len(protocol.Messages)),
-		serverSend:     make(map[string]map[string]string, len(protocol.States)),
-		serverReceive:  make(map[string]map[string]string, len(protocol.States)),
-		clientSend:     make(map[string]map[string]string, len(protocol.States)),
-		clientReceive:  make(map[string]map[string]string, len(protocol.States)),
+		messageClasses:  make(map[string]string, len(protocol.Messages)),
+		stateClasses:    map[string]map[string]string{"server": {}, "client": {}},
+		fieldNames:      make(map[string]map[string]string, len(protocol.Messages)),
+		nestedTypeNames: make(map[string]map[string]string, len(protocol.Messages)),
+		serverSend:      make(map[string]map[string]string, len(protocol.States)),
+		serverReceive:   make(map[string]map[string]string, len(protocol.States)),
+		clientSend:      make(map[string]map[string]string, len(protocol.States)),
+		clientReceive:   make(map[string]map[string]string, len(protocol.States)),
 	}
 }
 
@@ -82,10 +84,22 @@ func pythonReservedTypes() map[string]string {
 	}
 }
 
-func lowerPythonFields(names *pythonNames, message schema.Message) error {
-	names.fieldNames[message.ID] = make(map[string]string, len(message.Fields))
+func lowerPythonFields(names *pythonNames, message schema.Message, className string, usedTypes map[string]string) error {
+	names.fieldNames[message.ID] = make(map[string]string)
+	names.nestedTypeNames[message.ID] = make(map[string]string)
+	return lowerPythonFieldsInScope(names, message.ID, className, "", message.Fields, usedTypes)
+}
+
+func lowerPythonFieldsInScope(
+	names *pythonNames,
+	messageID string,
+	parentType string,
+	parentPath string,
+	fields []schema.Field,
+	usedTypes map[string]string,
+) error {
 	used := pydanticFieldNames()
-	for _, field := range message.Fields {
+	for _, field := range fields {
 		fieldName := snakeCase(field.Name)
 		if pythonKeyword(fieldName) || strings.HasPrefix(fieldName, "_") {
 			fieldName = "cue_" + strings.TrimLeft(fieldName, "_")
@@ -94,14 +108,33 @@ func lowerPythonFields(names *pythonNames, message schema.Message) error {
 			fieldName = "cue_" + fieldName
 		}
 		if !isPythonIdentifier(fieldName) {
-			return fmt.Errorf("message %q field %q cannot be mapped to a valid Python identifier", message.ID, field.Name)
+			return fmt.Errorf("message %q field %q cannot be mapped to a valid Python identifier", messageID, field.Name)
 		}
 		if err := registerName(used, fieldName, field.Name, "field"); err != nil {
-			return fmt.Errorf("message %q: %w", message.ID, err)
+			return fmt.Errorf("message %q: %w", messageID, err)
 		}
-		names.fieldNames[message.ID][field.Name] = fieldName
+		path := fieldPath(parentPath, field.Name)
+		names.fieldNames[messageID][path] = fieldName
+		if field.Kind != schema.Object {
+			continue
+		}
+		typeName := pascalCase(parentType + " " + field.Name)
+		if err := registerName(usedTypes, typeName, messageID+"."+path, "generated type"); err != nil {
+			return err
+		}
+		names.nestedTypeNames[messageID][path] = typeName
+		if err := lowerPythonFieldsInScope(names, messageID, typeName, path, field.Fields, usedTypes); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func fieldPath(parent, field string) string {
+	if parent == "" {
+		return field
+	}
+	return parent + "." + field
 }
 
 func pydanticFieldNames() map[string]string {

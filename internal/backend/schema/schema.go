@@ -9,7 +9,6 @@ import (
 	"math/big"
 	"sort"
 	"strconv"
-	"strings"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/encoding/jsonschema"
@@ -57,6 +56,7 @@ type Field struct {
 	MaxLength   *int64
 	Minimum     *string
 	Maximum     *string
+	Fields      []Field
 }
 
 type jsonNotConstraint struct {
@@ -73,7 +73,7 @@ func LowerMessage(ctx *cue.Context, message compiler.Message) (Message, error) {
 	if err != nil {
 		return Message{}, fmt.Errorf("cannot encode generated JSON Schema: %w", err)
 	}
-	definition, err := referencedDefinition(data)
+	definition, definitions, rootName, err := referencedDefinition(data)
 	if err != nil {
 		return Message{}, err
 	}
@@ -102,26 +102,17 @@ func LowerMessage(ctx *cue.Context, message compiler.Message) (Message, error) {
 	}, "object constraint"); err != nil {
 		return Message{}, err
 	}
-	return lowerMessageFields(message.ID, object.Properties, object.Required)
+	resolving := map[string]bool{rootName: true}
+	return lowerMessageFields(message.ID, object.Properties, object.Required, definitions, resolving)
 }
 
-func referencedDefinition(data []byte) (json.RawMessage, error) {
-	var envelope struct {
-		Ref  string                     `json:"$ref"`
-		Defs map[string]json.RawMessage `json:"$defs"`
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return nil, err
-	}
-	name := strings.TrimPrefix(envelope.Ref, "#/$defs/")
-	definition, ok := envelope.Defs[name]
-	if !ok || name == envelope.Ref {
-		return nil, fmt.Errorf("unsupported generated JSON Schema reference %q", envelope.Ref)
-	}
-	return definition, nil
-}
-
-func lowerMessageFields(id string, properties map[string]json.RawMessage, requiredNames []string) (Message, error) {
+func lowerMessageFields(
+	id string,
+	properties map[string]json.RawMessage,
+	requiredNames []string,
+	definitions map[string]json.RawMessage,
+	resolving map[string]bool,
+) (Message, error) {
 	result := Message{ID: id}
 	required := make(map[string]bool, len(requiredNames))
 	for _, name := range requiredNames {
@@ -137,7 +128,7 @@ func lowerMessageFields(id string, properties map[string]json.RawMessage, requir
 		if err != nil {
 			return Message{}, fmt.Errorf("field %q: %w", name, err)
 		}
-		field, err := lowerField(name, propertySchema, required[name])
+		field, err := lowerField(name, propertySchema, required[name], definitions, resolving)
 		if err != nil {
 			return Message{}, err
 		}
@@ -146,15 +137,40 @@ func lowerMessageFields(id string, properties map[string]json.RawMessage, requir
 	return result, nil
 }
 
-func lowerField(name string, rawSchema json.RawMessage, required bool) (Field, error) {
+func lowerField(
+	name string,
+	rawSchema json.RawMessage,
+	required bool,
+	definitions map[string]json.RawMessage,
+	resolving map[string]bool,
+) (Field, error) {
+	resolved, referenceName, err := resolveReference(rawSchema, definitions)
+	if err != nil {
+		return Field{}, err
+	}
+	if referenceName != "" && resolving[referenceName] {
+		return Field{}, fmt.Errorf("recursive CUE definition %q is not supported yet", referenceName)
+	}
+	if referenceName != "" {
+		resolving[referenceName] = true
+		defer delete(resolving, referenceName)
+	}
+	resolved, err = flattenSchema(resolved)
+	if err != nil {
+		return Field{}, err
+	}
+	rawSchema = resolved
 	var schema struct {
-		Type      string             `json:"type"`
-		Pattern   string             `json:"pattern"`
-		MinLength *int64             `json:"minLength"`
-		MaxLength *int64             `json:"maxLength"`
-		Minimum   *json.Number       `json:"minimum"`
-		Maximum   *json.Number       `json:"maximum"`
-		Not       *jsonNotConstraint `json:"not"`
+		Type                 string                     `json:"type"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+		Required             []string                   `json:"required"`
+		AdditionalProperties *bool                      `json:"additionalProperties"`
+		Pattern              string                     `json:"pattern"`
+		MinLength            *int64                     `json:"minLength"`
+		MaxLength            *int64                     `json:"maxLength"`
+		Minimum              *json.Number               `json:"minimum"`
+		Maximum              *json.Number               `json:"maximum"`
+		Not                  *jsonNotConstraint         `json:"not"`
 	}
 	if err := json.Unmarshal(rawSchema, &schema); err != nil {
 		return Field{}, err
@@ -162,6 +178,7 @@ func lowerField(name string, rawSchema json.RawMessage, required bool) (Field, e
 	if err := rejectUnsupportedKeywords(rawSchema, map[string]struct{}{
 		jsonTypeKeyword: {}, jsonPatternKeyword: {}, jsonMinLengthKeyword: {}, jsonMaxLengthKeyword: {},
 		jsonMinimumKeyword: {}, jsonMaximumKeyword: {}, jsonNotKeyword: {}, jsonTitleKeyword: {}, jsonDescriptionKeyword: {},
+		jsonPropertiesKeyword: {}, jsonRequiredKeyword: {}, jsonAdditionalPropertiesKeyword: {},
 	}, fmt.Sprintf("field %q constraint", name)); err != nil {
 		return Field{}, err
 	}
@@ -180,6 +197,16 @@ func lowerField(name string, rawSchema json.RawMessage, required bool) (Field, e
 	if err := validateFieldConstraint(&field, schema.Minimum, schema.Maximum, schema.Not); err != nil {
 		return Field{}, err
 	}
+	if field.Kind == Object {
+		if schema.AdditionalProperties != nil && *schema.AdditionalProperties {
+			return Field{}, fmt.Errorf("nested object field %q is open and is not supported yet", name)
+		}
+		nested, err := lowerMessageFields(name, schema.Properties, schema.Required, definitions, resolving)
+		if err != nil {
+			return Field{}, err
+		}
+		field.Fields = nested.Fields
+	}
 	return field, nil
 }
 
@@ -196,6 +223,10 @@ func validateFieldConstraint(field *Field, minimum, maximum *json.Number, not *j
 	case Boolean:
 		if field.Pattern != "" || field.MinLength != nil || field.MaxLength != nil || minimum != nil || maximum != nil || not != nil {
 			return fmt.Errorf("boolean field %q has unsupported value constraints", field.Name)
+		}
+	case Object:
+		if field.Pattern != "" || field.MinLength != nil || field.MaxLength != nil || minimum != nil || maximum != nil || not != nil {
+			return fmt.Errorf("object field %q has unsupported scalar constraints", field.Name)
 		}
 	default:
 		return fmt.Errorf("field %q has unsupported JSON Schema type %q", field.Name, field.Kind)
