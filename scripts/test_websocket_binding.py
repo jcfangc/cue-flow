@@ -329,7 +329,14 @@ async def main() -> None:
         python_peer = directory / "websocket_peer.py"
         shutil.copyfile(PYTHON_PEER, python_peer)
         run_command(
-            ["mypy", "--strict", str(python_module), str(python_peer)],
+            [
+                "mypy",
+                "--strict",
+                "--cache-dir",
+                str(directory / "mypy-cache"),
+                str(python_module),
+                str(python_peer),
+            ],
             "type-checking generated Python WebSocket API",
             environment,
         )
