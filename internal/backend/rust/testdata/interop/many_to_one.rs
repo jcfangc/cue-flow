@@ -35,7 +35,7 @@ fn serve_connection(stream: TcpStream) -> Result<(), String> {
         result: format!("received {QUERY_COUNT} queries"),
     }))
     .map_err(as_error)?;
-    block_on(ready.recv_close()).map_err(as_error)
+    block_on(ready.recv_close()).map(|_transport| ()).map_err(as_error)
 }
 
 fn validate_query_id(actual: &str, index: usize) -> Result<(), String> {
@@ -73,7 +73,7 @@ fn run_client(port: u16) -> Result<(), String> {
     if result.message.id != "aggregate" || result.message.result != "received 3 queries" {
         return Err(format!("unexpected aggregate Result: {:?}", result.message));
     }
-    block_on(result.session.close()).map_err(as_error)
+    block_on(result.session.close()).map(|_transport| ()).map_err(as_error)
 }
 
 fn as_error<E: std::fmt::Debug>(error: E) -> String {

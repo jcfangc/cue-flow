@@ -24,7 +24,9 @@ fn serve_connection(stream: TcpStream) -> Result<(), String> {
         }))
         .map_err(|error| format!("{error:?}"))?;
     }
-    block_on(streaming.close()).map_err(|error| format!("{error:?}"))
+    block_on(streaming.close())
+        .map(|_transport| ())
+        .map_err(|error| format!("{error:?}"))
 }
 
 fn run_server(port: u16) -> Result<(), String> {

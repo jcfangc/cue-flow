@@ -45,6 +45,17 @@ Optional CUE fields are represented as `Option<T>`. The generated Serde deserial
 
 The Python backend generates strict Pydantic v2 message models and separate server/client classes for each FSM state. State transitions return the next state type; mypy or another static type checker can reject calls that are unavailable in the current state. A session object is consumed at runtime when a transition is taken. Optional fields may be omitted and reject explicit `None`.
 
+## WebSocket JSON binding experiment
+
+The generator composes runtime, transport, codec, and endpoint choices. This experiment supports Rust with Tokio and Python with `asyncio`, using WebSocket text frames and JSON. Unsupported or incomplete combinations fail with an error. `--endpoint` selects the generated client API, server API, or both. Without the three binding axes, the generated API leaves `Transport` implementation to the caller.
+
+```sh
+go run ./cmd/cueflow generate python --input ./cue/examples --output ./generated/cueflow.py --runtime asyncio --transport websocket --codec json --endpoint both
+go run ./cmd/cueflow generate rust --input ./cue/examples --output ./generated/cueflow.rs --runtime tokio --transport websocket --codec json --endpoint both
+```
+
+JSON frames contain the CUE-defined message object directly; CueFlow adds no message ID or generic envelope. One CueFlow session uses one WebSocket connection in this binding, and protocol Close maps to WebSocket Close. Close codes 1000, 1001, and an empty close status count as normal; other codes and incomplete handshakes are transport errors in both backends. Close operations wait up to 10 seconds for the peer handshake. `recv_close` expects the next data event to be Close and reports a preceding business message as an error; use the state’s generated receive method when the peer may send a business message. The application establishes the connection and chooses server/client setup, authentication, and reconnect policy. The CLI only generates source; it does not resolve or install dependencies. Python projects must install `pydantic` and `websockets`. Rust projects must provide `serde`, `serde_json`, `regex`, `tokio` with the `time` feature enabled, `tokio-tungstenite`, and `futures-util` in their own manifest.
+
 ## First version limits
 
 Both generators currently support object messages with string and boolean fields, plus bounded integer fields that fit `i64`. String validation supports non-empty constraints, CUE regular-expression patterns, and length bounds. Integer validation supports inclusive minimum and maximum bounds. A pattern that CUE accepts but the target regex engine cannot compile is reported during generated model initialization or validation. `cueflow check` validates protocol semantics independently of any language backend; unsupported CUE/JSON Schema constraints fail generation instead of being silently dropped.
