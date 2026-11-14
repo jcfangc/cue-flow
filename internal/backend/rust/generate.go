@@ -43,7 +43,11 @@ func GenerateWithOptions(p *Protocol, options backend.GenerateOptions) (string, 
 		return "", err
 	}
 	if options.HasBinding() {
-		writeWebSocketJSONTransport(&out)
+		if options.Codec == backend.CBORCodec {
+			writeWebSocketCBORTransport(&out)
+		} else {
+			writeWebSocketJSONTransport(&out)
+		}
 	}
 	if options.Endpoint == backend.ServerEndpoint || options.Endpoint == backend.BothEndpoints {
 		writeEndpoint(&out, "server", "ServerSession", p, names, false, options.HasBinding())

@@ -24,7 +24,7 @@ Language 与 Runtime 是相关联的维度，不枚举无意义的组合。Endpo
 
 | Communication Binding | JSON | CBOR |
 | --- | --- | --- |
-| WebSocket | 已支持 | 计划支持 |
+| WebSocket | 已支持 | 已支持 |
 | HTTP | 计划支持 | 暂不支持；之后按需求重新评估 |
 
 矩阵约束适用于 Rust/Tokio 与 Python/`asyncio` 两个目标。增加某个 Codec 或 Binding 刻度，不会自动开放该刻度与其他所有值的组合。
@@ -38,7 +38,7 @@ Language 与 Runtime 是相关联的维度，不枚举无意义的组合。Endpo
 - 表示持久连接上的双向通信和有状态会话。
 - WebSocket 自身提供消息边界；CueFlow 不另加通用分帧机制。
 - WebSocket + JSON 使用文本消息；WebSocket + CBOR 使用二进制消息。
-- 当前 WebSocket + JSON 实验按一个 CueFlow Session 对应一条 WebSocket 连接，并将协议 Close 映射到 WebSocket Close。
+- 当前 WebSocket Binding 按一个 CueFlow Session 对应一条 WebSocket 连接，并将协议 Close 映射到 WebSocket Close。
 
 ### HTTP
 
