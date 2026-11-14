@@ -60,7 +60,7 @@ JSON frames contain the CUE-defined message object directly; CueFlow adds no mes
 
 Both generators currently support object messages with string and boolean fields, plus bounded integer fields that fit `i64`. String validation supports non-empty constraints, CUE regular-expression patterns, and length bounds. Integer validation supports inclusive minimum and maximum bounds. A pattern that CUE accepts but the target regex engine cannot compile is reported during generated model initialization or validation. `cueflow check` validates protocol semantics independently of any language backend; unsupported CUE/JSON Schema constraints fail generation instead of being silently dropped.
 
-Generated Rust code depends on Serde with its derive feature and the Rust `regex` crate. Generated Python code depends on Pydantic v2. Both backends define a transport boundary but do not implement networking, wire encoding, buffering, backpressure, or Runtime. The wire format remains open.
+Generated Rust code depends on Serde with its derive feature and the Rust `regex` crate. Generated Python code depends on Pydantic v2. When no binding axes are selected, the generated API exposes a `Transport` boundary for the application to implement. With the supported WebSocket + JSON combination, the generator also emits adapters built on `tokio-tungstenite` or `websockets`; they encode CUE message objects as JSON text frames and map protocol Close to WebSocket Close. The application still establishes or accepts connections and manages authentication and reconnection. Other runtime, transport, and codec combinations are not supported yet.
 
 ## Verification
 
