@@ -16,6 +16,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 PROTOCOL = REPOSITORY / "cue" / "examples"
+AMBIGUOUS_SENDS = REPOSITORY / "cue/testdata/endpoint_backend/multiple_sends"
 RUST_TEMPLATE = REPOSITORY / "internal/backend/rust/testdata/websocket"
 RUST_PEER = REPOSITORY / "internal/backend/rust/testdata/interop/websocket_peer.rs"
 PYTHON_PEER = REPOSITORY / "internal/backend/python/testdata/interop/websocket_peer.py"
@@ -153,6 +154,47 @@ def check_options(generator: Path, directory: Path, environment: dict[str, str])
     )
     if invalid.returncode == 0 or "must be selected together" not in invalid.stderr:
         raise RuntimeError("incomplete binding axes were not rejected clearly")
+
+    check_ambiguous_websocket_binding(generator, directory, environment)
+
+
+def check_ambiguous_websocket_binding(
+    generator: Path, directory: Path, environment: dict[str, str]
+) -> None:
+    expected_error = (
+        'multiple server send transitions, ambiguous for endpoint "client"'
+    )
+    for language in Language:
+        runtime = Runtime.TOKIO if language is Language.RUST else Runtime.ASYNCIO
+        result = subprocess.run(
+            [
+                str(generator),
+                "generate",
+                language.value,
+                "--input",
+                str(AMBIGUOUS_SENDS),
+                "--output",
+                str(directory / f"ambiguous-{language.value}.out"),
+                "--endpoint",
+                Endpoint.CLIENT.value,
+                "--runtime",
+                runtime.value,
+                "--transport",
+                Transport.WEBSOCKET.value,
+                "--codec",
+                Codec.JSON.value,
+            ],
+            cwd=REPOSITORY,
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode == 0 or expected_error not in result.stderr:
+            raise RuntimeError(
+                f"{language.value} WebSocket client did not reject ambiguous sends:\n"
+                f"{result.stdout}{result.stderr}"
+            )
+        print(f"PASS reject ambiguous WebSocket sends for {language.value} client")
 
 
 def build_rust_peer(
