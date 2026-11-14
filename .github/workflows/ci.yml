@@ -78,6 +78,11 @@ jobs:
           uv run --python 3.13 --with 'pydantic>=2,<3' --with mypy
           -- python scripts/test_endpoint_generation.py
 
+      - name: Test terminal WebSocket Close
+        run: >-
+          uv run --python 3.13 --with 'pydantic>=2,<3' --with 'websockets>=14'
+          --with mypy -- python scripts/test_terminal_websocket.py
+
   release:
     name: Build and publish CLI binaries
     if: github.ref == 'refs/heads/main'

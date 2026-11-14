@@ -216,9 +216,6 @@ func writeEndpoint(out *bytes.Buffer, module, sessionName string, p *Protocol, n
 	fmt.Fprintf(out, "    impl<T: Transport> %s<T, %s> {\n        pub fn new(transport: T) -> Self {\n            Self { transport, _state: PhantomData }\n        }\n    }\n\n", sessionName, names.stateTypes[p.Initial])
 
 	for _, state := range p.States {
-		if state.Terminal {
-			continue
-		}
 		writeStateMethods(out, sessionName, state, names, dual, closeTransport)
 	}
 	if dual {

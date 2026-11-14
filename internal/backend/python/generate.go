@@ -151,7 +151,8 @@ func writeEndpoint(output *bytes.Buffer, endpoint string, protocol *Protocol, na
 		className := names.stateClasses[endpoint][state.ID]
 		fmt.Fprintf(output, "class %s(_Session):\n", className)
 		if state.Terminal {
-			output.WriteString("    pass\n\n")
+			writeCloseMethods(output, closeTransport)
+			output.WriteByte('\n')
 			continue
 		}
 		writeStateMethods(output, endpoint, state, names)
