@@ -7,14 +7,30 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/jcfangc/cue-flow/internal/backend"
 	"github.com/jcfangc/cue-flow/internal/compiler"
 )
 
 func Generate(p *Protocol) (string, error) {
+	return GenerateWithOptions(p, backend.GenerateOptions{
+		Endpoint: backend.BothEndpoints,
+	})
+}
+
+func GenerateWithOptions(p *Protocol, options backend.GenerateOptions) (string, error) {
 	if p == nil {
 		return "", fmt.Errorf("protocol is empty")
 	}
+	if err := options.Validate(); err != nil {
+		return "", err
+	}
+	if err := options.ValidateRuntime(backend.TokioRuntime); err != nil {
+		return "", err
+	}
 	if err := compiler.Check(p); err != nil {
+		return "", err
+	}
+	if err := options.ValidateProtocol(p); err != nil {
 		return "", err
 	}
 	names, err := lowerRustNames(p)
@@ -26,8 +42,15 @@ func Generate(p *Protocol) (string, error) {
 	if err := writeMessages(&out, names.messages, names); err != nil {
 		return "", err
 	}
-	writeEndpoint(&out, "server", "ServerSession", p, names, false)
-	writeEndpoint(&out, "client", "ClientSession", p, names, true)
+	if options.HasBinding() {
+		writeWebSocketJSONTransport(&out)
+	}
+	if options.Endpoint == backend.ServerEndpoint || options.Endpoint == backend.BothEndpoints {
+		writeEndpoint(&out, "server", "ServerSession", p, names, false, options.HasBinding())
+	}
+	if options.Endpoint == backend.ClientEndpoint || options.Endpoint == backend.BothEndpoints {
+		writeEndpoint(&out, "client", "ClientSession", p, names, true, options.HasBinding())
+	}
 	return out.String(), nil
 }
 
@@ -75,9 +98,9 @@ pub trait Transport: Send {
 
     async fn send<M: serde::Serialize + Sync>(&mut self, message_id: &'static str, message: &M) -> std::result::Result<(), Self::Error>;
     async fn recv<M: serde::de::DeserializeOwned + Send>(&mut self, message_id: &'static str) -> std::result::Result<Inbound<M>, Self::Error>;
-    /// Send a logical Close event. This does not imply closing the transport connection.
+    /// Send a logical Close event. A concrete binding may map it to transport closure.
     async fn send_close(&mut self) -> std::result::Result<(), Self::Error>;
-    /// Wait for logical Close while preserving unrelated business messages for recv.
+    /// Wait for Close; a preceding business message may be reported as a transport error.
     async fn recv_close(&mut self) -> std::result::Result<(), Self::Error>;
 }
 
@@ -183,7 +206,7 @@ func lengthComparison(access string, bound *int64, minimum bool) string {
 	return fmt.Sprintf("length > %d", *bound)
 }
 
-func writeEndpoint(out *bytes.Buffer, module, sessionName string, p *Protocol, names *rustNames, dual bool) {
+func writeEndpoint(out *bytes.Buffer, module, sessionName string, p *Protocol, names *rustNames, dual bool, closeTransport bool) {
 	fmt.Fprintf(out, "pub mod %s {\n    use super::{messages, Inbound, ProtocolError, ReceiveOutcome, Transport};\n    use std::marker::PhantomData;\n\n", module)
 	for _, state := range p.States {
 		fmt.Fprintf(out, "    pub struct %s;\n", names.stateTypes[state.ID])
@@ -193,10 +216,7 @@ func writeEndpoint(out *bytes.Buffer, module, sessionName string, p *Protocol, n
 	fmt.Fprintf(out, "    impl<T: Transport> %s<T, %s> {\n        pub fn new(transport: T) -> Self {\n            Self { transport, _state: PhantomData }\n        }\n    }\n\n", sessionName, names.stateTypes[p.Initial])
 
 	for _, state := range p.States {
-		if state.Terminal {
-			continue
-		}
-		writeStateMethods(out, sessionName, state, names, dual)
+		writeStateMethods(out, sessionName, state, names, dual, closeTransport)
 	}
 	if dual {
 		out.WriteString("    // Client transitions are derived by swapping server send and recv.\n")
@@ -206,7 +226,7 @@ func writeEndpoint(out *bytes.Buffer, module, sessionName string, p *Protocol, n
 	out.WriteString("}\n\n")
 }
 
-func writeStateMethods(out *bytes.Buffer, sessionName string, state State, names *rustNames, dual bool) {
+func writeStateMethods(out *bytes.Buffer, sessionName string, state State, names *rustNames, dual, closeTransport bool) {
 	fmt.Fprintf(out, "    impl<T: Transport> %s<T, %s> {\n", sessionName, names.stateTypes[state.ID])
 	for _, transition := range state.Sends {
 		if dual {
@@ -222,9 +242,18 @@ func writeStateMethods(out *bytes.Buffer, sessionName string, state State, names
 		}
 		writeRecvMethod(out, sessionName, transition, names.messageTypes[transition.MessageID], names.serverRecvMethods[state.ID][transition.MessageID], names.stateTypes[transition.Target])
 	}
-	fmt.Fprintf(out, "        pub async fn close(mut self) -> std::result::Result<(), ProtocolError<T::Error>> {\n            self.transport.send_close().await.map_err(ProtocolError::Transport)\n        }\n")
-	fmt.Fprintf(out, "        pub async fn recv_close(mut self) -> std::result::Result<(), ProtocolError<T::Error>> {\n            self.transport.recv_close().await.map_err(ProtocolError::Transport)\n        }\n")
+	writeCloseMethods(out, closeTransport)
 	out.WriteString("    }\n\n")
+}
+
+func writeCloseMethods(out *bytes.Buffer, closeTransport bool) {
+	if closeTransport {
+		out.WriteString("        pub async fn close(mut self) -> std::result::Result<(), ProtocolError<T::Error>> {\n            self.transport.send_close().await.map_err(ProtocolError::Transport)\n        }\n")
+		out.WriteString("        pub async fn recv_close(mut self) -> std::result::Result<(), ProtocolError<T::Error>> {\n            self.transport.recv_close().await.map_err(ProtocolError::Transport)\n        }\n")
+		return
+	}
+	out.WriteString("        pub async fn close(mut self) -> std::result::Result<T, ProtocolError<T::Error>> {\n            self.transport.send_close().await.map_err(ProtocolError::Transport)?;\n            Ok(self.transport)\n        }\n")
+	out.WriteString("        pub async fn recv_close(mut self) -> std::result::Result<T, ProtocolError<T::Error>> {\n            self.transport.recv_close().await.map_err(ProtocolError::Transport)?;\n            Ok(self.transport)\n        }\n")
 }
 
 func writeSendMethod(out *bytes.Buffer, sessionName string, transition Transition, messageType, method, targetType string) {

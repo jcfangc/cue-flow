@@ -1,0 +1,13 @@
+# 临时 WebSocket binding 验证工程；Python 脚本生成 src/lib.rs 并编译 peer。
+[package]
+name = "cueflow-websocket-check"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures-util = "0.3"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "time", "test-util"] }
+tokio-tungstenite = "0.30"

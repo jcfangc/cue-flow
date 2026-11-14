@@ -80,7 +80,7 @@ def check_multiple_receives(generator: Path, directory: Path) -> None:
     result = run(
         [str(generator), "generate", "python", "--input", str(MULTIPLE_RECEIVES_INPUT), "--output", str(directory / "invalid.py")]
     )
-    expected_error = "multiple receive transitions, unsupported by the Python backend"
+    expected_error = 'multiple server receive transitions, ambiguous for endpoint "both"'
     if result.returncode == 0 or expected_error not in result.stderr:
         raise RuntimeError(f"Python backend did not reject multiple recv transitions:\n{result.stderr}")
 

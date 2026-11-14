@@ -42,7 +42,7 @@ jobs:
           python-version: "3.13"
 
       - name: Fetch Rust test dependencies
-        run: cargo fetch --manifest-path internal/backend/rust/testdata/generated_check/Cargo.toml
+        run: cargo fetch --manifest-path internal/backend/rust/testdata/websocket/Cargo.toml
 
       - name: Validate release version
         run: |
@@ -67,6 +67,21 @@ jobs:
 
       - name: Test Rust and Python interoperability
         run: uv run --python 3.13 --with 'pydantic>=2,<3' -- python scripts/test_interop.py
+
+      - name: Test WebSocket JSON bindings
+        run: >-
+          uv run --python 3.13 --with 'pydantic>=2,<3' --with 'websockets>=14'
+          --with mypy -- python scripts/test_websocket_binding.py
+
+      - name: Test endpoint-aware generation
+        run: >-
+          uv run --python 3.13 --with 'pydantic>=2,<3' --with mypy
+          -- python scripts/test_endpoint_generation.py
+
+      - name: Test terminal WebSocket Close
+        run: >-
+          uv run --python 3.13 --with 'pydantic>=2,<3' --with 'websockets>=14'
+          --with mypy -- python scripts/test_terminal_websocket.py
 
   release:
     name: Build and publish CLI binaries

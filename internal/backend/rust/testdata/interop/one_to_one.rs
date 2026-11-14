@@ -21,7 +21,9 @@ fn serve_connection(stream: TcpStream) -> Result<(), String> {
         result: "matched".to_owned(),
     }))
     .map_err(|error| format!("{error:?}"))?;
-    block_on(ready.recv_close()).map_err(|error| format!("{error:?}"))
+    block_on(ready.recv_close())
+        .map(|_transport| ())
+        .map_err(|error| format!("{error:?}"))
 }
 
 fn run_server(port: u16) -> Result<(), String> {
@@ -42,7 +44,9 @@ fn run_client(port: u16) -> Result<(), String> {
     if result.message.id != "query-0" || result.message.result != "matched" {
         return Err(format!("unexpected Result: {:?}", result.message));
     }
-    block_on(result.session.close()).map_err(|error| format!("{error:?}"))
+    block_on(result.session.close())
+        .map(|_transport| ())
+        .map_err(|error| format!("{error:?}"))
 }
 
 fn main() {

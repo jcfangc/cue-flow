@@ -39,7 +39,7 @@ fn serve_connection(stream: TcpStream) -> Result<(), String> {
         }))
         .map_err(as_error)?;
     }
-    block_on(streaming.close()).map_err(as_error)
+    block_on(streaming.close()).map(|_transport| ()).map_err(as_error)
 }
 
 fn validate_query_id(actual: &str, index: usize) -> Result<(), String> {

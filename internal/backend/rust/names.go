@@ -104,9 +104,6 @@ func lowerRustFields(names *rustNames, message *rustMessage) error {
 }
 
 func lowerRustMethods(names *rustNames, state State) error {
-	if len(state.Receives) > 1 {
-		return fmt.Errorf("state %q has multiple receive transitions, unsupported by the Rust backend", state.ID)
-	}
 	serverMethods := map[string]string{"recv_close": "implicit Close"}
 	clientMethods := map[string]string{"recv_close": "implicit Close"}
 	names.serverSendMethods[state.ID] = make(map[string]string, len(state.Sends))
