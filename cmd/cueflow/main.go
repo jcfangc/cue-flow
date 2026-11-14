@@ -70,7 +70,7 @@ func run(args []string) error {
 	)
 	runtime := flags.String(runtimeFlag, "", "async runtime, such as tokio or asyncio")
 	transport := flags.String(transportFlag, "", "transport axis, such as websocket")
-	codec := flags.String(codecFlag, "", "encoding axis, such as json")
+	codec := flags.String(codecFlag, "", "encoding axis, such as json or cbor")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func usageError() error {
 	return fmt.Errorf(
 		"usage: cueflow check [--input package-dir] | " +
 			"cueflow generate {rust|python} [--input package-dir] [--output file] " +
-			"[--runtime tokio|asyncio] [--transport websocket] [--codec json] " +
+			"[--runtime tokio|asyncio] [--transport websocket] [--codec json|cbor] " +
 			"[--endpoint client|server|both]",
 	)
 }

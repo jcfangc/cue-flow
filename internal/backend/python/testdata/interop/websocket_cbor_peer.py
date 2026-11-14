@@ -23,6 +23,9 @@ class PeerRole(Enum):
     CLIENT = "client"
     ABNORMAL_SERVER = "abnormal-server"
     ABNORMAL_CLIENT = "abnormal-client"
+    REJECT_DUPLICATE_KEYS = "reject-duplicate-keys"
+    REJECT_TEXT_FRAME = "reject-text-frame"
+    REJECT_MALFORMED_CBOR = "reject-malformed-cbor"
 
 
 async def serve_session(websocket: Connection) -> None:
@@ -121,12 +124,43 @@ async def run_abnormal_client(port: int) -> None:
         raise RuntimeError("abnormal WebSocket Close was accepted as protocol Close")
 
 
+async def run_invalid_frame_server(port: int) -> None:
+    completed = asyncio.Event()
+    failures: list[str] = []
+
+    async def handle_connection(websocket: Connection) -> None:
+        try:
+            session = api.ServerReady(api.WebSocketCBORTransport(websocket))
+            await session.recv_query()
+        except api.TransportFailure:
+            print("INVALID_FRAME_REJECTED", flush=True)
+        except Exception as error:
+            failures.append(str(error))
+        else:
+            failures.append("invalid frame was accepted")
+        finally:
+            completed.set()
+
+    server = await serve(handle_connection, LOOPBACK, port)
+    sockets = server.sockets
+    if sockets is None or not sockets:
+        raise RuntimeError("WebSocket server did not bind a socket")
+    print(f"READY {sockets[0].getsockname()[1]}", flush=True)
+    async with server:
+        await asyncio.wait_for(completed.wait(), timeout=PROCESS_TIMEOUT_SECONDS)
+    if failures:
+        raise RuntimeError("; ".join(failures))
+
+
 async def run_peer(role: PeerRole, port: int) -> None:
     handlers: dict[PeerRole, Callable[[int], Awaitable[None]]] = {
         PeerRole.SERVER: run_server,
         PeerRole.CLIENT: run_client,
         PeerRole.ABNORMAL_SERVER: run_abnormal_server,
         PeerRole.ABNORMAL_CLIENT: run_abnormal_client,
+        PeerRole.REJECT_DUPLICATE_KEYS: run_invalid_frame_server,
+        PeerRole.REJECT_TEXT_FRAME: run_invalid_frame_server,
+        PeerRole.REJECT_MALFORMED_CBOR: run_invalid_frame_server,
     }
     await handlers[role](port)
 

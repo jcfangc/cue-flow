@@ -76,7 +76,7 @@ jobs:
       - name: Test WebSocket CBOR bindings
         run: >-
           uv run --python 3.13 --with 'pydantic>=2,<3' --with 'websockets>=14'
-          --with 'cbor2>=6,<7' --with mypy -- python scripts/test_websocket_cbor.py
+          --with 'cbor2>=6.1.0,<7' --with mypy -- python scripts/test_websocket_cbor.py
 
       - name: Test endpoint-aware generation
         run: >-

@@ -55,7 +55,7 @@ class WebSocketCBORTransport:
     def _decode_payload(raw: str | bytes) -> object:
         if not isinstance(raw, bytes):
             raise ProtocolError("WebSocket CBOR binding requires binary frames")
-        return cbor2.loads(raw)
+        return cbor2.loads(raw, allow_duplicate_keys=False)
 
     @staticmethod
     def _ensure_normal_close(code: int | None) -> None:

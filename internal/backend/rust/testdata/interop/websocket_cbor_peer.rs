@@ -20,6 +20,16 @@ enum PeerRole {
     Client,
     AbnormalServer,
     AbnormalClient,
+    RejectDuplicateKeys,
+    RejectTextFrame,
+    RejectMalformedCbor,
+}
+
+#[derive(PartialEq, Eq)]
+enum InvalidFrame {
+    DuplicateKeys,
+    Text,
+    MalformedCbor,
 }
 
 fn protocol_failure(error: impl Debug) -> io::Error {
@@ -32,6 +42,9 @@ fn parse_role(value: &str) -> Result<PeerRole, io::Error> {
         "client" => Ok(PeerRole::Client),
         "abnormal-server" => Ok(PeerRole::AbnormalServer),
         "abnormal-client" => Ok(PeerRole::AbnormalClient),
+        "reject-duplicate-keys" => Ok(PeerRole::RejectDuplicateKeys),
+        "reject-text-frame" => Ok(PeerRole::RejectTextFrame),
+        "reject-malformed-cbor" => Ok(PeerRole::RejectMalformedCbor),
         _ => Err(io::Error::other("role must be server or client")),
     }
 }
@@ -45,6 +58,21 @@ async fn accept_connection(port: u16) -> Result<WebSocketStream<tokio::net::TcpS
 
 async fn run_server(port: u16) -> Result<(), PeerError> {
     serve_session(accept_connection(port).await?).await
+}
+
+async fn run_invalid_frame_server(port: u16, invalid_frame: InvalidFrame) -> Result<(), PeerError> {
+    let transport = WebSocketCborTransport::new(accept_connection(port).await?);
+    let session = server::ServerSession::<_, server::Ready>::new(transport);
+    match session.recv_query().await {
+        Err(ProtocolError::Transport(WebSocketCborError::TextFrameUnsupported))
+            if invalid_frame == InvalidFrame::Text => {}
+        Err(ProtocolError::Transport(WebSocketCborError::CborDeserialize(_)))
+            if invalid_frame != InvalidFrame::Text => {}
+        Err(error) => return Err(protocol_failure(error).into()),
+        Ok(_) => return Err("invalid frame was accepted".into()),
+    }
+    println!("INVALID_FRAME_REJECTED");
+    Ok(())
 }
 
 async fn serve_session<S>(websocket: WebSocketStream<S>) -> Result<(), PeerError>
@@ -140,9 +168,7 @@ async fn run_abnormal_client(port: u16) -> Result<(), PeerError> {
         .await
         .map_err(protocol_failure)?;
     match waiting.recv_result().await {
-        Err(ProtocolError::Transport(WebSocketCborError::AbnormalClose {
-            code: Some(1011),
-        })) => {
+        Err(ProtocolError::Transport(WebSocketCborError::AbnormalClose { code: Some(1011) })) => {
             println!("ABNORMAL_CLOSE_REJECTED");
             Ok(())
         }
@@ -164,5 +190,12 @@ async fn main() -> Result<(), PeerError> {
         PeerRole::Client => run_client(port).await,
         PeerRole::AbnormalServer => run_abnormal_server(port).await,
         PeerRole::AbnormalClient => run_abnormal_client(port).await,
+        PeerRole::RejectDuplicateKeys => {
+            run_invalid_frame_server(port, InvalidFrame::DuplicateKeys).await
+        }
+        PeerRole::RejectTextFrame => run_invalid_frame_server(port, InvalidFrame::Text).await,
+        PeerRole::RejectMalformedCbor => {
+            run_invalid_frame_server(port, InvalidFrame::MalformedCbor).await
+        }
     }
 }

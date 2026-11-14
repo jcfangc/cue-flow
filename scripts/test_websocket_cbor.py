@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from websockets.asyncio.client import connect
+
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 PROTOCOL = REPOSITORY / "cue" / "examples"
@@ -33,6 +35,15 @@ class PeerRole(Enum):
     SERVER = "server"
     ABNORMAL_CLIENT = "abnormal-client"
     ABNORMAL_SERVER = "abnormal-server"
+    REJECT_DUPLICATE_KEYS = "reject-duplicate-keys"
+    REJECT_TEXT_FRAME = "reject-text-frame"
+    REJECT_MALFORMED_CBOR = "reject-malformed-cbor"
+
+
+class InvalidFrame(Enum):
+    DUPLICATE_KEYS = "reject-duplicate-keys"
+    TEXT = "reject-text-frame"
+    MALFORMED_CBOR = "reject-malformed-cbor"
 
 
 @dataclass
@@ -46,6 +57,25 @@ class ProcessOutput:
     return_code: int
     stdout: str
     stderr: str
+
+
+@dataclass(frozen=True)
+class PeerDirection:
+    client: Language
+    server: Language
+
+
+INVALID_FRAME_PAYLOADS: dict[InvalidFrame, bytes | str] = {
+    # Valid Query map except that the "id" key occurs twice.
+    InvalidFrame.DUPLICATE_KEYS: bytes.fromhex(
+        "a4 62 69 64 65 66 69 72 73 74 "
+        "62 69 64 66 73 65 63 6f 6e 64 "
+        "68 73 65 71 75 65 6e 63 65 64 41 43 47 54 "
+        "64 74 6f 70 4b 05"
+    ),
+    InvalidFrame.TEXT: "not a CBOR binary frame",
+    InvalidFrame.MALFORMED_CBOR: b"\xa1",
+}
 
 
 def run_command(command: list[str], action: str, environment: dict[str, str]) -> None:
@@ -245,6 +275,32 @@ async def run_pair(
     print(f"PASS {client_language.value} -> {server_language.value}{mode}")
 
 
+async def run_invalid_frame_case(
+    language: Language,
+    invalid_frame: InvalidFrame,
+    rust_peer: Path,
+    python_peer: Path,
+    directory: Path,
+    environment: dict[str, str],
+) -> None:
+    role = PeerRole(invalid_frame.value)
+    server = await spawn_peer(
+        f"{language.value} invalid-frame server",
+        peer_command(language, role, 0, rust_peer, python_peer),
+        directory,
+        environment,
+    )
+    try:
+        port = await read_server_port(server)
+        async with connect(f"ws://127.0.0.1:{port}") as websocket:
+            await websocket.send(INVALID_FRAME_PAYLOADS[invalid_frame])
+        output = await collect(server)
+        require_success(server, output, "INVALID_FRAME_REJECTED")
+    finally:
+        await stop(server)
+    print(f"PASS {language.value} rejects {invalid_frame.name.lower()}")
+
+
 async def main() -> None:
     with tempfile.TemporaryDirectory(
         prefix=".cueflow-websocket-cbor-", dir=REPOSITORY
@@ -277,27 +333,38 @@ async def main() -> None:
             environment,
         )
 
-        for client_language, server_language in (
-            (Language.PYTHON, Language.RUST),
-            (Language.RUST, Language.PYTHON),
-        ):
+        directions = [
+            PeerDirection(client=Language.PYTHON, server=Language.RUST),
+            PeerDirection(client=Language.RUST, server=Language.PYTHON),
+        ]
+        for direction in directions:
             await run_pair(
-                client_language,
-                server_language,
+                direction.client,
+                direction.server,
                 rust_peer,
                 python_peer,
                 directory,
                 environment,
             )
             await run_pair(
-                client_language,
-                server_language,
+                direction.client,
+                direction.server,
                 rust_peer,
                 python_peer,
                 directory,
                 environment,
                 abnormal=True,
             )
+        for language in Language:
+            for invalid_frame in InvalidFrame:
+                await run_invalid_frame_case(
+                    language,
+                    invalid_frame,
+                    rust_peer,
+                    python_peer,
+                    directory,
+                    environment,
+                )
 
 
 if __name__ == "__main__":
