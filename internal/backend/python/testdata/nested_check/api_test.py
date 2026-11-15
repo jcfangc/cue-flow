@@ -38,10 +38,14 @@ def query_payload(sequence: str, top_k: int) -> dict[str, object]:
     return {
         "id": "q1",
         "filter.sequence": "root-level",
+        "wire/route/path": "root-slash",
+        "wire~1name": "tilde",
+        "wire/name": "slash",
         "filter": {
             "sequence": sequence,
             "range": {"topK": top_k, "active": True},
         },
+        "wire": {"route/path": "nested-slash"},
     }
 
 
@@ -54,6 +58,10 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(query.filter.note)
         self.assertEqual(query.filter.sequence, "ACGT")
         self.assertEqual(query.filter_sequence, "root-level")
+        self.assertEqual(query.wire.route_path, "nested-slash")
+        self.assertEqual(query.wire_route_path, "root-slash")
+        self.assertEqual(query.wire_1name, "tilde")
+        self.assertEqual(query.wire_name, "slash")
         self.assertIsNone(query.details)
 
         invalid_queries = [
@@ -72,26 +80,16 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
                     )
 
     async def test_nested_required_and_unknown_fields(self) -> None:
+        missing_required = query_payload("ACGT", 5)
+        missing_required["filter"] = {"sequence": "ACGT"}
         with self.assertRaises(ValidationError):
-            api.Query.model_validate(
-                {
-                    "id": "q1",
-                    "filter.sequence": "root-level",
-                    "filter": {"sequence": "ACGT"},
-                }
-            )
+            api.Query.model_validate(missing_required)
+        unknown_nested = query_payload("ACGT", 5)
+        filter_value = unknown_nested["filter"]
+        assert isinstance(filter_value, dict)
+        filter_value["note"] = None
         with self.assertRaises(ValidationError):
-            api.Query.model_validate(
-                {
-                    "id": "q1",
-                    "filter.sequence": "root-level",
-                    "filter": {
-                        "sequence": "ACGT",
-                        "note": None,
-                        "range": {"topK": 5, "active": True},
-                    },
-                }
-            )
+            api.Query.model_validate(unknown_nested)
 
     async def test_optional_nested_object_presence_and_null(self) -> None:
         payload = query_payload("ACGT", 5)
@@ -107,17 +105,14 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
                 invalid_payload["details"] = invalid_details
                 with self.assertRaises(ValidationError):
                     api.Query.model_validate(invalid_payload)
+        extra_nested = query_payload("ACGT", 5)
+        filter_value = extra_nested["filter"]
+        assert isinstance(filter_value, dict)
+        range_value = filter_value["range"]
+        assert isinstance(range_value, dict)
+        range_value["unexpected"] = True
         with self.assertRaises(ValidationError):
-            api.Query.model_validate(
-                {
-                    "id": "q1",
-                    "filter.sequence": "root-level",
-                    "filter": {
-                        "sequence": "ACGT",
-                        "range": {"topK": 5, "active": True, "unexpected": True},
-                    },
-                }
-            )
+            api.Query.model_validate(extra_nested)
 
     async def test_receive_api_rejects_nested_constraint_violation(self) -> None:
         transport = MockTransport(api.InboundMessage("Query", query_payload("ACGX", 5)))
@@ -129,10 +124,14 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
         query = api.Query.model_construct(
             id="q1",
             filter_sequence="root-level",
+            wire_route_path="root-slash",
+            wire_1name="tilde",
+            wire_name="slash",
             filter=api.QueryFilter.model_construct(
                 sequence="ACGX",
                 range=api.QueryFilterRange.model_construct(top_k=5, active=True),
             ),
+            wire=api.QueryWire.model_construct(route_path="nested-slash"),
             details=None,
         )
         session = api.ClientReady(MockTransport(api.InboundClose()))

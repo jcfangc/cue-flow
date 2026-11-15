@@ -54,10 +54,14 @@ fn query_payload(sequence: &str, top_k: i64) -> serde_json::Value {
     serde_json::json!({
         "id": "q1",
         "filter.sequence": "root-level",
+        "wire/route/path": "root-slash",
+        "wire~1name": "tilde",
+        "wire/name": "slash",
         "filter": {
             "sequence": sequence,
             "range": {"topK": top_k, "active": true}
-        }
+        },
+        "wire": {"route/path": "nested-slash"}
     })
 }
 
@@ -78,6 +82,12 @@ fn nested_fields_lower_to_named_rust_types() {
     let query: messages::Query = serde_json::from_value(query_payload("ACGT", 5)).unwrap();
     query.validate().unwrap();
     assert_eq!(query.filter.range.top_k, 5);
+    assert_eq!(query.filter.sequence, "ACGT");
+    assert_eq!(query.filter_sequence, "root-level");
+    assert_eq!(query.wire.route_path, "nested-slash");
+    assert_eq!(query.wire_route_path, "root-slash");
+    assert_eq!(query.wire_1name, "tilde");
+    assert_eq!(query.wire_name, "slash");
 }
 
 #[test]
@@ -96,23 +106,32 @@ fn nested_constraints_reject_invalid_values() {
 
 #[test]
 fn nested_objects_reject_missing_and_extra_fields() {
-    let missing = serde_json::json!({"id": "q1", "filter": {"sequence": "ACGT"}});
+    let mut missing = query_payload("ACGT", 5);
+    missing["filter"] = serde_json::json!({"sequence": "ACGT"});
     let extra = serde_json::json!({
         "id": "q1",
         "filter.sequence": "root-level",
+        "wire/route/path": "root-slash",
+        "wire~1name": "tilde",
+        "wire/name": "slash",
         "filter": {
             "sequence": "ACGT",
             "range": {"topK": 5, "active": true, "unexpected": true}
-        }
+        },
+        "wire": {"route/path": "nested-slash"}
     });
     let null_optional = serde_json::json!({
         "id": "q1",
         "filter.sequence": "root-level",
+        "wire/route/path": "root-slash",
+        "wire~1name": "tilde",
+        "wire/name": "slash",
         "filter": {
             "sequence": "ACGT",
             "note": null,
             "range": {"topK": 5, "active": true}
-        }
+        },
+        "wire": {"route/path": "nested-slash"}
     });
     assert!(serde_json::from_value::<messages::Query>(missing).is_err());
     assert!(serde_json::from_value::<messages::Query>(extra).is_err());
@@ -150,6 +169,9 @@ fn invalid_nested_message_is_rejected_before_send() {
     let message = messages::Query {
         id: "q1".to_owned(),
         filter_sequence: "root-level".to_owned(),
+        wire_route_path: "root-slash".to_owned(),
+        wire_1name: "tilde".to_owned(),
+        wire_name: "slash".to_owned(),
         filter: messages::QueryFilter {
             sequence: "ACGX".to_owned(),
             note: None,
@@ -157,6 +179,9 @@ fn invalid_nested_message_is_rejected_before_send() {
                 top_k: 5,
                 active: true,
             },
+        },
+        wire: messages::QueryWire {
+            route_path: "nested-slash".to_owned(),
         },
         details: None,
     };

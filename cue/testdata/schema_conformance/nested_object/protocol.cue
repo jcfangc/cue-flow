@@ -15,6 +15,12 @@ import flow "github.com/jcfangc/cue-flow:cueflow"
 	id:     string & !=""
 	filter: #QueryFilter
 	"filter.sequence": string & !=""
+	wire: {
+		"route/path": string & !=""
+	}
+	"wire/route/path": string & !=""
+	"wire~1name":    string & !=""
+	"wire/name":     string & !=""
 	details?: {
 		label: string & !=""
 	}
@@ -45,6 +51,9 @@ sample: {
 	query: protocol.messages.Query & {
 		id: "q1"
 		"filter.sequence": "root-level"
+		"wire/route/path": "root-slash"
+		"wire~1name": "tilde"
+		"wire/name": "slash"
 		filter: {
 			sequence: "ACGT"
 			range: {
@@ -52,5 +61,6 @@ sample: {
 				active: true
 			}
 		}
+		wire: {"route/path": "nested-slash"}
 	}
 }
