@@ -60,7 +60,7 @@ type Field struct {
 }
 
 type jsonNotConstraint struct {
-	Const any `json:"const"`
+	Const json.RawMessage `json:"const"`
 }
 
 func LowerMessage(ctx *cue.Context, message compiler.Message) (Message, error) {
@@ -73,11 +73,11 @@ func LowerMessage(ctx *cue.Context, message compiler.Message) (Message, error) {
 	if err != nil {
 		return Message{}, fmt.Errorf("cannot encode generated JSON Schema: %w", err)
 	}
-	definition, definitions, rootName, err := referencedDefinition(data)
+	definition, err := referencedDefinition(data)
 	if err != nil {
 		return Message{}, err
 	}
-	definition, err = flattenSchema(definition)
+	rootSchema, err := flattenSchema(definition.Root)
 	if err != nil {
 		return Message{}, err
 	}
@@ -87,7 +87,7 @@ func LowerMessage(ctx *cue.Context, message compiler.Message) (Message, error) {
 		Required             []string                   `json:"required"`
 		AdditionalProperties *bool                      `json:"additionalProperties"`
 	}
-	if err := json.Unmarshal(definition, &object); err != nil {
+	if err := json.Unmarshal(rootSchema, &object); err != nil {
 		return Message{}, err
 	}
 	if Kind(object.Type) != Object {
@@ -96,14 +96,14 @@ func LowerMessage(ctx *cue.Context, message compiler.Message) (Message, error) {
 	if object.AdditionalProperties != nil && *object.AdditionalProperties {
 		return Message{}, fmt.Errorf("open message objects are not supported yet")
 	}
-	if err := rejectUnsupportedKeywords(definition, map[string]struct{}{
+	if err := rejectUnsupportedKeywords(rootSchema, map[string]struct{}{
 		jsonTypeKeyword: {}, jsonPropertiesKeyword: {}, jsonRequiredKeyword: {},
 		jsonAdditionalPropertiesKeyword: {}, jsonTitleKeyword: {}, jsonDescriptionKeyword: {},
 	}, "object constraint"); err != nil {
 		return Message{}, err
 	}
-	resolving := map[string]bool{rootName: true}
-	return lowerMessageFields(message.ID, object.Properties, object.Required, definitions, resolving)
+	resolving := map[string]bool{definition.RootName: true}
+	return lowerMessageFields(message.ID, object.Properties, object.Required, definition.Definitions, resolving)
 }
 
 func lowerMessageFields(
@@ -144,18 +144,18 @@ func lowerField(
 	definitions map[string]json.RawMessage,
 	resolving map[string]bool,
 ) (Field, error) {
-	resolved, referenceName, err := resolveReference(rawSchema, definitions)
+	reference, err := resolveReference(rawSchema, definitions)
 	if err != nil {
 		return Field{}, err
 	}
-	if referenceName != "" && resolving[referenceName] {
-		return Field{}, fmt.Errorf("recursive CUE definition %q is not supported yet", referenceName)
+	if reference.Name != "" && resolving[reference.Name] {
+		return Field{}, fmt.Errorf("recursive CUE definition %q is not supported yet", reference.Name)
 	}
-	if referenceName != "" {
-		resolving[referenceName] = true
-		defer delete(resolving, referenceName)
+	if reference.Name != "" {
+		resolving[reference.Name] = true
+		defer delete(resolving, reference.Name)
 	}
-	resolved, err = flattenSchema(resolved)
+	resolved, err := flattenSchema(reference.Schema)
 	if err != nil {
 		return Field{}, err
 	}
@@ -232,13 +232,22 @@ func validateFieldConstraint(field *Field, minimum, maximum *json.Number, not *j
 		return fmt.Errorf("field %q has unsupported JSON Schema type %q", field.Name, field.Kind)
 	}
 	if not != nil {
-		if field.Kind == String && not.Const == "" {
+		if field.Kind == String && isEmptyStringConstant(not.Const) {
 			field.RejectEmpty = true
 		} else {
 			return fmt.Errorf("field %q uses an unsupported not constraint", field.Name)
 		}
 	}
 	return nil
+}
+
+func isEmptyStringConstant(value json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) < 2 || trimmed[0] != '"' {
+		return false
+	}
+	var stringValue string
+	return json.Unmarshal(trimmed, &stringValue) == nil && stringValue == ""
 }
 
 func rejectUnsupportedKeywords(raw json.RawMessage, allowed map[string]struct{}, description string) error {

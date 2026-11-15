@@ -7,23 +7,40 @@ import (
 	"strings"
 )
 
-func referencedDefinition(data []byte) (json.RawMessage, map[string]json.RawMessage, string, error) {
+const unsupportedGeneratedSchemaReference = "unsupported generated JSON Schema reference %q"
+
+type schemaDefinition struct {
+	Root        json.RawMessage
+	Definitions map[string]json.RawMessage
+	RootName    string
+}
+
+type resolvedReference struct {
+	Schema json.RawMessage
+	Name   string
+}
+
+func referencedDefinition(data []byte) (schemaDefinition, error) {
 	var envelope struct {
 		Ref  string                     `json:"$ref"`
 		Defs map[string]json.RawMessage `json:"$defs"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		return nil, nil, "", err
+		return schemaDefinition{}, err
 	}
 	name, ok := definitionName(envelope.Ref)
 	if !ok {
-		return nil, nil, "", fmt.Errorf("unsupported generated JSON Schema reference %q", envelope.Ref)
+		return schemaDefinition{}, fmt.Errorf(unsupportedGeneratedSchemaReference, envelope.Ref)
 	}
 	definition, ok := envelope.Defs[name]
 	if !ok {
-		return nil, nil, "", fmt.Errorf("unsupported generated JSON Schema reference %q", envelope.Ref)
+		return schemaDefinition{}, fmt.Errorf(unsupportedGeneratedSchemaReference, envelope.Ref)
 	}
-	return definition, envelope.Defs, name, nil
+	return schemaDefinition{
+		Root:        definition,
+		Definitions: envelope.Defs,
+		RootName:    name,
+	}, nil
 }
 
 func definitionName(reference string) (string, bool) {
@@ -38,33 +55,33 @@ func definitionName(reference string) (string, bool) {
 func resolveReference(
 	raw json.RawMessage,
 	definitions map[string]json.RawMessage,
-) (json.RawMessage, string, error) {
+) (resolvedReference, error) {
 	var reference struct {
 		Ref string `json:"$ref"`
 	}
 	if err := json.Unmarshal(raw, &reference); err != nil {
-		return nil, "", err
+		return resolvedReference{}, err
 	}
 	if reference.Ref == "" {
-		return raw, "", nil
+		return resolvedReference{Schema: raw}, nil
 	}
 	var keywords map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &keywords); err != nil {
-		return nil, "", err
+		return resolvedReference{}, err
 	}
 	for keyword := range keywords {
 		if keyword == "$ref" || keyword == jsonTitleKeyword || keyword == jsonDescriptionKeyword {
 			continue
 		}
-		return nil, "", fmt.Errorf("JSON Schema reference has unsupported sibling %q", keyword)
+		return resolvedReference{}, fmt.Errorf("JSON Schema reference has unsupported sibling %q", keyword)
 	}
 	name, ok := definitionName(reference.Ref)
 	if !ok {
-		return nil, "", fmt.Errorf("unsupported generated JSON Schema reference %q", reference.Ref)
+		return resolvedReference{}, fmt.Errorf(unsupportedGeneratedSchemaReference, reference.Ref)
 	}
 	definition, ok := definitions[name]
 	if !ok {
-		return nil, "", fmt.Errorf("unsupported generated JSON Schema reference %q", reference.Ref)
+		return resolvedReference{}, fmt.Errorf(unsupportedGeneratedSchemaReference, reference.Ref)
 	}
-	return definition, name, nil
+	return resolvedReference{Schema: definition, Name: name}, nil
 }
