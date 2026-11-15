@@ -22,7 +22,7 @@ func writeMessages(out *bytes.Buffer, names *pythonNames) error {
 
 func writeMessage(out *bytes.Buffer, message schema.Message, names *pythonNames) error {
 	for _, field := range message.Fields {
-		if err := writeNestedModel(out, message.ID, field, field.Name, names); err != nil {
+		if err := writeNestedModel(out, message.ID, field, fieldPath("", field.Name), names); err != nil {
 			return err
 		}
 	}

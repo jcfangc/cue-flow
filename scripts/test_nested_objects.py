@@ -13,6 +13,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 PROTOCOL = REPOSITORY / "cue/testdata/schema_conformance/nested_object"
+OPEN_PROTOCOL = REPOSITORY / "cue/testdata/schema_conformance/open_nested_object"
 RUST_TEMPLATE = REPOSITORY / "internal/backend/rust/testdata/nested_check"
 PYTHON_TESTDATA = REPOSITORY / "internal/backend/python/testdata/nested_check"
 
@@ -125,6 +126,33 @@ def test_python(
     )
 
 
+def test_open_object_rejected(
+    generator: Path,
+    directory: Path,
+    environment: dict[str, str],
+) -> None:
+    expected_error = 'nested object field "metadata" is open and is not supported yet'
+    for language in ["rust", "python"]:
+        result = subprocess.run(
+            [
+                str(generator),
+                "generate",
+                language,
+                "--input",
+                str(OPEN_PROTOCOL),
+                "--output",
+                str(directory / f"open-{language}.out"),
+            ],
+            cwd=REPOSITORY,
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode == 0 or expected_error not in result.stderr:
+            raise RuntimeError(
+                f"{language} backend did not reject the open nested object:\n"
+                f"{result.stdout}{result.stderr}"
+            )
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix=".cueflow-nested-", dir=REPOSITORY) as temporary:
         directory = Path(temporary)
@@ -137,6 +165,7 @@ def main() -> None:
         generator = build_generator(directory, environment)
         test_rust(generator, directory, environment)
         test_python(generator, directory, environment)
+        test_open_object_rejected(generator, directory, environment)
     print("Nested-object semantic checks passed")
 
 

@@ -14,6 +14,10 @@ import flow "github.com/jcfangc/cue-flow:cueflow"
 #Query: {
 	id:     string & !=""
 	filter: #QueryFilter
+	"filter.sequence": string & !=""
+	details?: {
+		label: string & !=""
+	}
 }
 
 #Result: {
@@ -40,6 +44,7 @@ protocol: flow.#Protocol & {
 sample: {
 	query: protocol.messages.Query & {
 		id: "q1"
+		"filter.sequence": "root-level"
 		filter: {
 			sequence: "ACGT"
 			range: {

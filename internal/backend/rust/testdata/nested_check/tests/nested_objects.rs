@@ -53,6 +53,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
 fn query_payload(sequence: &str, top_k: i64) -> serde_json::Value {
     serde_json::json!({
         "id": "q1",
+        "filter.sequence": "root-level",
         "filter": {
             "sequence": sequence,
             "range": {"topK": top_k, "active": true}
@@ -98,6 +99,7 @@ fn nested_objects_reject_missing_and_extra_fields() {
     let missing = serde_json::json!({"id": "q1", "filter": {"sequence": "ACGT"}});
     let extra = serde_json::json!({
         "id": "q1",
+        "filter.sequence": "root-level",
         "filter": {
             "sequence": "ACGT",
             "range": {"topK": 5, "active": true, "unexpected": true}
@@ -105,6 +107,7 @@ fn nested_objects_reject_missing_and_extra_fields() {
     });
     let null_optional = serde_json::json!({
         "id": "q1",
+        "filter.sequence": "root-level",
         "filter": {
             "sequence": "ACGT",
             "note": null,
@@ -114,12 +117,39 @@ fn nested_objects_reject_missing_and_extra_fields() {
     assert!(serde_json::from_value::<messages::Query>(missing).is_err());
     assert!(serde_json::from_value::<messages::Query>(extra).is_err());
     assert!(serde_json::from_value::<messages::Query>(null_optional).is_err());
+
+    let null_nested_object = serde_json::json!({
+        "id": "q1",
+        "filter.sequence": "root-level",
+        "filter": query_payload("ACGT", 5)["filter"].clone(),
+        "details": null
+    });
+    assert!(serde_json::from_value::<messages::Query>(null_nested_object).is_err());
+}
+
+#[test]
+fn optional_nested_object_accepts_absent_or_valid_value() {
+    let absent: messages::Query = serde_json::from_value(query_payload("ACGT", 5)).unwrap();
+    absent.validate().unwrap();
+    assert!(absent.details.is_none());
+
+    let mut present = query_payload("ACGT", 5);
+    present["details"] = serde_json::json!({"label": "valid"});
+    let present: messages::Query = serde_json::from_value(present).unwrap();
+    present.validate().unwrap();
+    assert_eq!(present.details.unwrap().label, "valid");
+
+    let mut invalid = query_payload("ACGT", 5);
+    invalid["details"] = serde_json::json!({"label": ""});
+    let invalid: messages::Query = serde_json::from_value(invalid).unwrap();
+    assert!(invalid.validate().is_err());
 }
 
 #[test]
 fn invalid_nested_message_is_rejected_before_send() {
     let message = messages::Query {
         id: "q1".to_owned(),
+        filter_sequence: "root-level".to_owned(),
         filter: messages::QueryFilter {
             sequence: "ACGX".to_owned(),
             note: None,
@@ -128,6 +158,7 @@ fn invalid_nested_message_is_rejected_before_send() {
                 active: true,
             },
         },
+        details: None,
     };
     let session = client::ClientSession::<Mock, client::Ready>::new(Mock { payload: None });
     match block_on(session.send_query(message)) {

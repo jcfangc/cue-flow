@@ -37,6 +37,7 @@ class MockTransport:
 def query_payload(sequence: str, top_k: int) -> dict[str, object]:
     return {
         "id": "q1",
+        "filter.sequence": "root-level",
         "filter": {
             "sequence": sequence,
             "range": {"topK": top_k, "active": True},
@@ -51,6 +52,9 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(query.filter.range, api.QueryFilterRange)
         self.assertTrue(query.filter.range.active)
         self.assertIsNone(query.filter.note)
+        self.assertEqual(query.filter.sequence, "ACGT")
+        self.assertEqual(query.filter_sequence, "root-level")
+        self.assertIsNone(query.details)
 
         invalid_queries = [
             InvalidQuery(sequence="ACGX", top_k=5),
@@ -69,11 +73,18 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
 
     async def test_nested_required_and_unknown_fields(self) -> None:
         with self.assertRaises(ValidationError):
-            api.Query.model_validate({"id": "q1", "filter": {"sequence": "ACGT"}})
+            api.Query.model_validate(
+                {
+                    "id": "q1",
+                    "filter.sequence": "root-level",
+                    "filter": {"sequence": "ACGT"},
+                }
+            )
         with self.assertRaises(ValidationError):
             api.Query.model_validate(
                 {
                     "id": "q1",
+                    "filter.sequence": "root-level",
                     "filter": {
                         "sequence": "ACGT",
                         "note": None,
@@ -81,10 +92,26 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
                     },
                 }
             )
+
+    async def test_optional_nested_object_presence_and_null(self) -> None:
+        payload = query_payload("ACGT", 5)
+        payload["details"] = {"label": "valid"}
+        query = api.Query.model_validate(payload)
+        self.assertIsInstance(query.details, api.QueryDetails)
+        self.assertEqual(query.details.label, "valid")
+
+        invalid_details_cases: list[object] = [None, {"label": ""}]
+        for invalid_details in invalid_details_cases:
+            with self.subTest(details=invalid_details):
+                invalid_payload = query_payload("ACGT", 5)
+                invalid_payload["details"] = invalid_details
+                with self.assertRaises(ValidationError):
+                    api.Query.model_validate(invalid_payload)
         with self.assertRaises(ValidationError):
             api.Query.model_validate(
                 {
                     "id": "q1",
+                    "filter.sequence": "root-level",
                     "filter": {
                         "sequence": "ACGT",
                         "range": {"topK": 5, "active": True, "unexpected": True},
@@ -101,10 +128,12 @@ class NestedObjectModels(unittest.IsolatedAsyncioTestCase):
     async def test_send_api_revalidates_nested_constraint(self) -> None:
         query = api.Query.model_construct(
             id="q1",
+            filter_sequence="root-level",
             filter=api.QueryFilter.model_construct(
                 sequence="ACGX",
                 range=api.QueryFilterRange.model_construct(top_k=5, active=True),
             ),
+            details=None,
         )
         session = api.ClientReady(MockTransport(api.InboundClose()))
         with self.assertRaises(api.MessageValidationFailure):

@@ -131,10 +131,12 @@ func lowerPythonFieldsInScope(
 }
 
 func fieldPath(parent, field string) string {
+	const pathSeparator = "/"
+	field = strings.NewReplacer("~", "~0", "/", "~1").Replace(field)
 	if parent == "" {
-		return field
+		return pathSeparator + field
 	}
-	return parent + "." + field
+	return parent + pathSeparator + field
 }
 
 func pydanticFieldNames() map[string]string {
