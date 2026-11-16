@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue/cuecontext"
+	"github.com/jcfangc/cue-flow/internal/backend/schema"
 	"github.com/jcfangc/cue-flow/internal/compiler"
 )
 
@@ -19,8 +20,6 @@ type rustNames struct {
 	messages          []rustMessage
 	messageTypes      map[string]string
 	stateTypes        map[string]string
-	fieldNames        map[string]map[string]string
-	fieldTypes        map[string]map[string]string
 	serverSendMethods map[string]map[string]string
 	serverRecvMethods map[string]map[string]string
 	clientSendMethods map[string]map[string]string
@@ -31,8 +30,6 @@ func lowerRustNames(p *Protocol) (*rustNames, error) {
 	names := &rustNames{
 		messageTypes:      make(map[string]string, len(p.Messages)),
 		stateTypes:        make(map[string]string, len(p.States)),
-		fieldNames:        make(map[string]map[string]string, len(p.Messages)),
-		fieldTypes:        make(map[string]map[string]string, len(p.Messages)),
 		serverSendMethods: make(map[string]map[string]string, len(p.States)),
 		serverRecvMethods: make(map[string]map[string]string, len(p.States)),
 		clientSendMethods: make(map[string]map[string]string, len(p.States)),
@@ -54,7 +51,7 @@ func lowerRustNames(p *Protocol) (*rustNames, error) {
 		}
 		names.messageTypes[message.ID] = typeName
 		spec.TypeName = typeName
-		if err := lowerRustFields(names, &spec); err != nil {
+		if err := lowerRustFields(&spec, messageNames); err != nil {
 			return nil, err
 		}
 		names.messages = append(names.messages, spec)
@@ -83,22 +80,34 @@ func lowerRustNames(p *Protocol) (*rustNames, error) {
 	return names, nil
 }
 
-func lowerRustFields(names *rustNames, message *rustMessage) error {
-	fieldNames := make(map[string]string, len(message.Fields))
-	names.fieldNames[message.ID] = make(map[string]string, len(message.Fields))
-	names.fieldTypes[message.ID] = make(map[string]string, len(message.Fields))
-	for i := range message.Fields {
-		field := &message.Fields[i]
+func lowerRustFields(message *rustMessage, usedTypes map[string]string) error {
+	return lowerRustFieldsInScope(message.Fields, message.TypeName, message.ID, usedTypes)
+}
+
+func lowerRustFieldsInScope(fields []rustMessageField, parentType, messageID string, usedTypes map[string]string) error {
+	usedFields := make(map[string]string, len(fields))
+	for i := range fields {
+		field := &fields[i]
 		fieldName := rustField(snakeCase(field.Name))
 		if !isRustIdentifier(fieldName) {
 			return fmt.Errorf("field %q cannot be mapped to a valid Rust identifier", field.Name)
 		}
-		if err := registerRustName(fieldNames, fieldName, field.Name, "field"); err != nil {
-			return fmt.Errorf("message %q: %w", message.ID, err)
+		if err := registerRustName(usedFields, fieldName, field.Name, "field"); err != nil {
+			return fmt.Errorf("message %q: %w", messageID, err)
 		}
 		field.RustName = fieldName
-		names.fieldNames[message.ID][field.Name] = fieldName
-		names.fieldTypes[message.ID][field.Name] = field.RustType
+		if field.Kind != schema.Object {
+			continue
+		}
+		typeName := pascalCase(parentType + " " + field.Name)
+		if err := registerRustName(usedTypes, typeName, messageID+"."+field.Name, "message type"); err != nil {
+			return err
+		}
+		field.TypeName = typeName
+		field.RustType = typeName
+		if err := lowerRustFieldsInScope(field.Fields, typeName, messageID+"."+field.Name, usedTypes); err != nil {
+			return err
+		}
 	}
 	return nil
 }

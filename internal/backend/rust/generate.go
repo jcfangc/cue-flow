@@ -1,5 +1,5 @@
-// 文件职责：将已检查的协议组装为 Rust 模块源码，包括消息、Transport API 和双方状态接口。
-// Rust 字段类型先由 schema.go 降级，Rust 标识符映射由 names.go 负责。
+// 文件职责：将已检查的协议组装为 Rust Prelude、Transport API 和双方状态接口。
+// 消息数据类型及约束校验代码由 messages.go 生成。
 package rust
 
 import (
@@ -39,11 +39,15 @@ func GenerateWithOptions(p *Protocol, options backend.GenerateOptions) (string, 
 	}
 	var out bytes.Buffer
 	writePrelude(&out)
-	if err := writeMessages(&out, names.messages, names); err != nil {
+	if err := writeMessages(&out, names.messages); err != nil {
 		return "", err
 	}
 	if options.HasBinding() {
-		writeWebSocketJSONTransport(&out)
+		if options.Codec == backend.CBORCodec {
+			writeWebSocketCBORTransport(&out)
+		} else {
+			writeWebSocketJSONTransport(&out)
+		}
 	}
 	if options.Endpoint == backend.ServerEndpoint || options.Endpoint == backend.BothEndpoints {
 		writeEndpoint(&out, "server", "ServerSession", p, names, false, options.HasBinding())
@@ -105,105 +109,6 @@ pub trait Transport: Send {
 }
 
 `)
-}
-
-func writeMessages(out *bytes.Buffer, messages []rustMessage, names *rustNames) error {
-	out.WriteString("pub mod messages {\n\n")
-	for _, message := range messages {
-		writeMessage(out, message, names)
-	}
-	out.WriteString("}\n\n")
-	return nil
-}
-
-func writeMessage(out *bytes.Buffer, message rustMessage, names *rustNames) {
-	typeName := names.messageTypes[message.ID]
-	fmt.Fprintf(out, "    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]\n    #[serde(deny_unknown_fields)]\n    pub struct %s {\n", typeName)
-	for _, field := range message.Fields {
-		writeMessageField(out, field, names.fieldNames[message.ID][field.Name], names.fieldTypes[message.ID][field.Name])
-	}
-	out.WriteString("    }\n\n")
-	fmt.Fprintf(out, "    impl %s {\n        pub fn validate(&self) -> std::result::Result<(), super::ValidationError> {\n", typeName)
-	for _, field := range message.Fields {
-		writeFieldValidation(out, field, names.fieldNames[message.ID][field.Name])
-	}
-	out.WriteString("            Ok(())\n        }\n    }\n\n")
-}
-
-func writeMessageField(out *bytes.Buffer, field rustMessageField, fieldName, fieldType string) {
-	typ := fieldType
-	if !field.Required {
-		typ = "Option<" + typ + ">"
-	}
-	if field.Required {
-		fmt.Fprintf(out, "        #[serde(rename = %s)]\n        pub %s: %s,\n", strconv.Quote(field.Name), fieldName, typ)
-		return
-	}
-	// Optional CUE fields should be omitted on the wire when absent.
-	fmt.Fprintf(out, "        #[serde(rename = %s, default, deserialize_with = \"super::deserialize_present\", skip_serializing_if = \"Option::is_none\")]\n        pub %s: %s,\n", strconv.Quote(field.Name), fieldName, typ)
-}
-
-func writeFieldValidation(out *bytes.Buffer, field rustMessageField, fieldName string) {
-	if !field.RejectEmpty && field.Pattern == "" && field.MinLength == nil && field.MaxLength == nil && field.MinInt == nil {
-		return
-	}
-	access := "self." + fieldName
-	if !field.Required {
-		fmt.Fprintf(out, "            if let Some(value) = %s.as_ref() {\n", access)
-		access = "value"
-	}
-	writeStringValidation(out, field, access)
-	writeIntegerValidation(out, field, access)
-	if !field.Required {
-		out.WriteString("            }\n")
-	}
-}
-
-func writeStringValidation(out *bytes.Buffer, field rustMessageField, access string) {
-	if field.RejectEmpty {
-		fmt.Fprintf(out, "                if %s.is_empty() { return Err(super::ValidationError::Empty(%s)); }\n", access, strconv.Quote(field.Name))
-	}
-	if field.Pattern != "" {
-		fmt.Fprintf(out, "                let pattern = regex::Regex::new(%s).map_err(|_| super::ValidationError::PatternCompile(%s))?;\n                if !pattern.is_match(&%s) { return Err(super::ValidationError::Pattern { field: %s, pattern: %s }); }\n",
-			strconv.Quote(field.Pattern), strconv.Quote(field.Name), access, strconv.Quote(field.Name), strconv.Quote(field.Pattern))
-	}
-	if field.MinLength != nil || field.MaxLength != nil {
-		min := "None"
-		max := "None"
-		if field.MinLength != nil {
-			min = fmt.Sprintf("Some(%d)", *field.MinLength)
-		}
-		if field.MaxLength != nil {
-			max = fmt.Sprintf("Some(%d)", *field.MaxLength)
-		}
-		fmt.Fprintf(out, "                let length = %s.chars().count();\n                if %s || %s { return Err(super::ValidationError::Length { field: %s, min: %s, max: %s }); }\n",
-			access,
-			lengthComparison(access, field.MinLength, true),
-			lengthComparison(access, field.MaxLength, false),
-			strconv.Quote(field.Name), min, max)
-	}
-}
-
-func writeIntegerValidation(out *bytes.Buffer, field rustMessageField, access string) {
-	if field.MinInt == nil || field.MaxInt == nil {
-		return
-	}
-	numericAccess := access
-	if !field.Required {
-		numericAccess = "*" + access
-	}
-	fmt.Fprintf(out, "                if %s < %d || %s > %d { return Err(super::ValidationError::IntegerRange { field: %s, min: %d, max: %d }); }\n",
-		numericAccess, *field.MinInt, numericAccess, *field.MaxInt, strconv.Quote(field.Name), *field.MinInt, *field.MaxInt)
-}
-
-func lengthComparison(access string, bound *int64, minimum bool) string {
-	if bound == nil {
-		return "false"
-	}
-	if minimum {
-		return fmt.Sprintf("length < %d", *bound)
-	}
-	return fmt.Sprintf("length > %d", *bound)
 }
 
 func writeEndpoint(out *bytes.Buffer, module, sessionName string, p *Protocol, names *rustNames, dual bool, closeTransport bool) {

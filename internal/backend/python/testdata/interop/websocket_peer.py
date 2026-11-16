@@ -30,11 +30,18 @@ async def serve_session(websocket: Connection) -> None:
     query = await session.recv_query()
     if isinstance(query, api.Closed):
         raise RuntimeError("server received Close before Query")
-    if query.message.id != "q1" or query.message.sequence != "ACGT":
+    if (
+        query.message.id != "q1"
+        or query.message.filter.sequence != "ACGT"
+        or query.message.filter.range.top_k != 5
+        or not query.message.filter.range.active
+        or query.message.details is None
+        or query.message.details.label != "nested"
+    ):
         raise RuntimeError("server received an unexpected Query")
-    if query.message.top_k != 5:
-        raise RuntimeError("server received an unexpected topK value")
-    result = api.Result.model_validate({"id": "q1", "result": "matched"})
+    result = api.Result.model_validate(
+        {"id": "q1", "payload": {"summary": "matched", "matches": 3}}
+    )
     waiting = await query.session.send_result(result)
     await waiting.recv_close()
 
@@ -69,13 +76,24 @@ async def run_client(port: int) -> None:
     async with connect(url) as websocket:
         session = api.ClientReady(api.WebSocketJSONTransport(websocket))
         query = api.Query.model_validate(
-            {"id": "q1", "sequence": "ACGT", "topK": 5}
+            {
+                "id": "q1",
+                "filter": {
+                    "sequence": "ACGT",
+                    "range": {"topK": 5, "active": True},
+                },
+                "details": {"label": "nested"},
+            }
         )
         waiting = await session.send_query(query)
         result = await waiting.recv_result()
         if isinstance(result, api.Closed):
             raise RuntimeError("client received Close before Result")
-        if result.message.id != "q1" or result.message.result != "matched":
+        if (
+            result.message.id != "q1"
+            or result.message.payload.summary != "matched"
+            or result.message.payload.matches != 3
+        ):
             raise RuntimeError("client received an unexpected Result")
         await result.session.close()
     print("CLIENT_OK", flush=True)
@@ -105,7 +123,14 @@ async def run_abnormal_client(port: int) -> None:
     async with connect(url) as websocket:
         session = api.ClientReady(api.WebSocketJSONTransport(websocket))
         query = api.Query.model_validate(
-            {"id": "q1", "sequence": "ACGT", "topK": 5}
+            {
+                "id": "q1",
+                "filter": {
+                    "sequence": "ACGT",
+                    "range": {"topK": 5, "active": True},
+                },
+                "details": {"label": "nested"},
+            }
         )
         waiting = await session.send_query(query)
         try:

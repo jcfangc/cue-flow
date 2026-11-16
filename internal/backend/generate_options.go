@@ -22,6 +22,7 @@ const (
 
 	WebSocketTransport Transport = "websocket"
 	JSONCodec          Codec     = "json"
+	CBORCodec          Codec     = "cbor"
 )
 
 // GenerateOptions selects the concrete runtime binding for generated APIs.
@@ -53,7 +54,7 @@ func (options GenerateOptions) Validate() error {
 	if options.Transport != WebSocketTransport {
 		return fmt.Errorf("unsupported transport %q", options.Transport)
 	}
-	if options.Codec != JSONCodec {
+	if options.Codec != JSONCodec && options.Codec != CBORCodec {
 		return fmt.Errorf("unsupported codec %q", options.Codec)
 	}
 	return nil

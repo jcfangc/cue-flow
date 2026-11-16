@@ -65,6 +65,11 @@ jobs:
       - name: Test Python backend
         run: uv run --python 3.13 --with 'pydantic>=2,<3' --with mypy -- python scripts/test_python.py
 
+      - name: Test nested CUE object semantics
+        run: >-
+          uv run --python 3.13 --with 'pydantic>=2,<3' --with mypy
+          -- python scripts/test_nested_objects.py
+
       - name: Test Rust and Python interoperability
         run: uv run --python 3.13 --with 'pydantic>=2,<3' -- python scripts/test_interop.py
 
@@ -72,6 +77,11 @@ jobs:
         run: >-
           uv run --python 3.13 --with 'pydantic>=2,<3' --with 'websockets>=14'
           --with mypy -- python scripts/test_websocket_binding.py
+
+      - name: Test WebSocket CBOR bindings
+        run: >-
+          uv run --python 3.13 --with 'pydantic>=2,<3' --with 'websockets>=14'
+          --with 'cbor2>=6.1.0,<7' --with mypy -- python scripts/test_websocket_cbor.py
 
       - name: Test endpoint-aware generation
         run: >-
