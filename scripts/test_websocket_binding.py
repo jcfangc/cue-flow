@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-PROTOCOL = REPOSITORY / "cue" / "examples"
+PROTOCOL = REPOSITORY / "cue/testdata/websocket_nested"
 AMBIGUOUS_SENDS = REPOSITORY / "cue/testdata/endpoint_backend/multiple_sends"
 RUST_TEMPLATE = REPOSITORY / "internal/backend/rust/testdata/websocket"
 RUST_PEER = REPOSITORY / "internal/backend/rust/testdata/interop/websocket_peer.rs"

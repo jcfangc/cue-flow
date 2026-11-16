@@ -17,7 +17,7 @@ from websockets.asyncio.client import connect
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-PROTOCOL = REPOSITORY / "cue" / "examples"
+PROTOCOL = REPOSITORY / "cue/testdata/websocket_nested"
 RUST_TEMPLATE = REPOSITORY / "internal/backend/rust/testdata/websocket"
 RUST_PEER = REPOSITORY / "internal/backend/rust/testdata/interop/websocket_cbor_peer.rs"
 PYTHON_PEER = REPOSITORY / "internal/backend/python/testdata/interop/websocket_cbor_peer.py"
@@ -66,12 +66,14 @@ class PeerDirection:
 
 
 INVALID_FRAME_PAYLOADS: dict[InvalidFrame, bytes | str] = {
-    # Valid Query map except that the "id" key occurs twice.
+    # Valid nested Query except that the "id" key occurs twice.
     InvalidFrame.DUPLICATE_KEYS: bytes.fromhex(
-        "a4 62 69 64 65 66 69 72 73 74 "
+        "a3 62 69 64 65 66 69 72 73 74 "
         "62 69 64 66 73 65 63 6f 6e 64 "
+        "66 66 69 6c 74 65 72 a2 "
         "68 73 65 71 75 65 6e 63 65 64 41 43 47 54 "
-        "64 74 6f 70 4b 05"
+        "65 72 61 6e 67 65 a2 64 74 6f 70 4b 05 "
+        "66 61 63 74 69 76 65 f5"
     ),
     InvalidFrame.TEXT: "not a CBOR binary frame",
     InvalidFrame.MALFORMED_CBOR: b"\xa1",

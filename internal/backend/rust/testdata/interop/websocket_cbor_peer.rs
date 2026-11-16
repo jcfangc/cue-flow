@@ -85,13 +85,25 @@ where
     let cueflow_websocket_check::ReceiveOutcome::Message { message, session } = query else {
         return Err("server received Close before Query".into());
     };
-    if message.id != "q1" || message.sequence != "ACGT" || message.top_k != 5 {
+    if message.id != "q1"
+        || message.filter.sequence != "ACGT"
+        || message.filter.range.top_k != 5
+        || !message.filter.range.active
+        || message
+            .details
+            .as_ref()
+            .map(|details| details.label.as_str())
+            != Some("nested")
+    {
         return Err("server received an unexpected Query".into());
     }
     let waiting = session
         .send_result(messages::Result {
             id: message.id,
-            result: "matched".to_owned(),
+            payload: messages::ResultPayload {
+                summary: "matched".to_owned(),
+                matches: 3,
+            },
         })
         .await
         .map_err(protocol_failure)?;
@@ -108,10 +120,17 @@ async fn run_client(port: u16) -> Result<(), PeerError> {
     let waiting = session
         .send_query(messages::Query {
             id: "q1".to_owned(),
-            sequence: "ACGT".to_owned(),
-            top_k: 5,
-            note: None,
-            cue_gen: None,
+            filter: messages::QueryFilter {
+                sequence: "ACGT".to_owned(),
+                range: messages::QueryFilterRange {
+                    top_k: 5,
+                    active: true,
+                },
+                note: None,
+            },
+            details: Some(messages::QueryDetails {
+                label: "nested".to_owned(),
+            }),
         })
         .await
         .map_err(protocol_failure)?;
@@ -119,7 +138,7 @@ async fn run_client(port: u16) -> Result<(), PeerError> {
     let cueflow_websocket_check::ReceiveOutcome::Message { message, session } = result else {
         return Err("client received Close before Result".into());
     };
-    if message.id != "q1" || message.result != "matched" {
+    if message.id != "q1" || message.payload.summary != "matched" || message.payload.matches != 3 {
         return Err("client received an unexpected Result".into());
     }
     session.close().await.map_err(protocol_failure)?;
@@ -160,10 +179,17 @@ async fn run_abnormal_client(port: u16) -> Result<(), PeerError> {
     let waiting = session
         .send_query(messages::Query {
             id: "q1".to_owned(),
-            sequence: "ACGT".to_owned(),
-            top_k: 5,
-            note: None,
-            cue_gen: None,
+            filter: messages::QueryFilter {
+                sequence: "ACGT".to_owned(),
+                range: messages::QueryFilterRange {
+                    top_k: 5,
+                    active: true,
+                },
+                note: None,
+            },
+            details: Some(messages::QueryDetails {
+                label: "nested".to_owned(),
+            }),
         })
         .await
         .map_err(protocol_failure)?;
