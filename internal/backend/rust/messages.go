@@ -63,6 +63,10 @@ func writeMessageField(out *bytes.Buffer, field rustMessageField) {
 }
 
 func writeFieldValidation(out *bytes.Buffer, field rustMessageField) {
+	if field.Kind == schema.List {
+		writeListFieldValidation(out, field)
+		return
+	}
 	if field.Kind == schema.Object {
 		writeNestedFieldValidation(out, field)
 		return
@@ -71,12 +75,39 @@ func writeFieldValidation(out *bytes.Buffer, field rustMessageField) {
 		return
 	}
 	access := "self." + field.RustName
+	indentation := "            "
 	if !field.Required {
 		fmt.Fprintf(out, "            if let Some(value) = %s.as_ref() {\n", access)
 		access = "value"
+		indentation = "                "
 	}
-	writeStringValidation(out, field, access)
+	writeStringValidation(out, field, access, indentation)
 	writeIntegerValidation(out, field, access)
+	if !field.Required {
+		out.WriteString("            }\n")
+	}
+}
+
+func writeListFieldValidation(out *bytes.Buffer, field rustMessageField) {
+	if field.Items == nil {
+		return
+	}
+	item := *field.Items
+	if !item.RejectEmpty && item.Pattern == "" && item.MinLength == nil && item.MaxLength == nil {
+		return
+	}
+	values := "self." + field.RustName
+	loopIndentation := "            "
+	itemIndentation := "                "
+	if !field.Required {
+		values = "values"
+		fmt.Fprintf(out, "            if let Some(values) = self.%s.as_ref() {\n", field.RustName)
+		loopIndentation = "                "
+		itemIndentation = "                    "
+	}
+	fmt.Fprintf(out, "%sfor item in %s {\n", loopIndentation, values)
+	writeStringValidation(out, item, "item", itemIndentation)
+	fmt.Fprintf(out, "%s}\n", loopIndentation)
 	if !field.Required {
 		out.WriteString("            }\n")
 	}
@@ -90,13 +121,13 @@ func writeNestedFieldValidation(out *bytes.Buffer, field rustMessageField) {
 	fmt.Fprintf(out, "            if let Some(value) = self.%s.as_ref() { value.validate()?; }\n", field.RustName)
 }
 
-func writeStringValidation(out *bytes.Buffer, field rustMessageField, access string) {
+func writeStringValidation(out *bytes.Buffer, field rustMessageField, access, indentation string) {
 	if field.RejectEmpty {
-		fmt.Fprintf(out, "                if %s.is_empty() { return Err(super::ValidationError::Empty(%s)); }\n", access, strconv.Quote(field.Name))
+		fmt.Fprintf(out, "%sif %s.is_empty() { return Err(super::ValidationError::Empty(%s)); }\n", indentation, access, strconv.Quote(field.Name))
 	}
 	if field.Pattern != "" {
-		fmt.Fprintf(out, "                let pattern = regex::Regex::new(%s).map_err(|_| super::ValidationError::PatternCompile(%s))?;\n                if !pattern.is_match(&%s) { return Err(super::ValidationError::Pattern { field: %s, pattern: %s }); }\n",
-			strconv.Quote(field.Pattern), strconv.Quote(field.Name), access, strconv.Quote(field.Name), strconv.Quote(field.Pattern))
+		fmt.Fprintf(out, "%slet pattern = regex::Regex::new(%s).map_err(|_| super::ValidationError::PatternCompile(%s))?;\n%sif !pattern.is_match(&%s) { return Err(super::ValidationError::Pattern { field: %s, pattern: %s }); }\n",
+			indentation, strconv.Quote(field.Pattern), strconv.Quote(field.Name), indentation, access, strconv.Quote(field.Name), strconv.Quote(field.Pattern))
 	}
 	if field.MinLength != nil || field.MaxLength != nil {
 		min := "None"
@@ -107,8 +138,10 @@ func writeStringValidation(out *bytes.Buffer, field rustMessageField, access str
 		if field.MaxLength != nil {
 			max = fmt.Sprintf("Some(%d)", *field.MaxLength)
 		}
-		fmt.Fprintf(out, "                let length = %s.chars().count();\n                if %s || %s { return Err(super::ValidationError::Length { field: %s, min: %s, max: %s }); }\n",
+		fmt.Fprintf(out, "%slet length = %s.chars().count();\n%sif %s || %s { return Err(super::ValidationError::Length { field: %s, min: %s, max: %s }); }\n",
+			indentation,
 			access,
+			indentation,
 			lengthComparison(access, field.MinLength, true),
 			lengthComparison(access, field.MaxLength, false),
 			strconv.Quote(field.Name), min, max)

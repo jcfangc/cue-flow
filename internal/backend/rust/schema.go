@@ -31,6 +31,7 @@ type rustMessageField struct {
 	MinInt      *int64
 	MaxInt      *int64
 	Fields      []rustMessageField
+	Items       *rustMessageField
 }
 
 type rustFieldLowering struct {
@@ -78,6 +79,13 @@ func parseRustField(field schema.Field) (rustMessageField, error) {
 		}
 		result.Fields = append(result.Fields, loweredChild)
 	}
+	if field.Items != nil {
+		item, err := parseRustField(*field.Items)
+		if err != nil {
+			return rustMessageField{}, err
+		}
+		result.Items = &item
+	}
 	return result, nil
 }
 
@@ -99,6 +107,11 @@ func lowerRustField(field schema.Field) (rustFieldLowering, error) {
 		return rustFieldLowering{RustType: "bool"}, nil
 	case schema.Object:
 		return rustFieldLowering{}, nil
+	case schema.List:
+		if field.Items == nil || field.Items.Kind != schema.String {
+			return rustFieldLowering{}, fmt.Errorf("list field %q requires supported string items", field.Name)
+		}
+		return rustFieldLowering{RustType: "Vec<String>"}, nil
 	case schema.Number:
 		return rustFieldLowering{}, fmt.Errorf("number fields are not supported yet; CUE number precision is not lowered to f64")
 	default:

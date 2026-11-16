@@ -71,7 +71,7 @@ func newPythonNames(protocol *Protocol) *pythonNames {
 
 func pythonReservedTypes() map[string]string {
 	return map[string]string{
-		"BaseModel": "Pydantic base", "Closed": "generated outcome", "ConfigDict": "Pydantic config",
+		"Annotated": "typing helper", "BaseModel": "Pydantic base", "Closed": "generated outcome", "ConfigDict": "Pydantic config",
 		"dataclass": "imported helper", "Exception": "built-in exception", "Field": "Pydantic field",
 		"Generic": "typing helper", "Inbound": "generated type alias", "InboundClose": "generated event",
 		"InboundMessage": "generated event", "MessageT": "generated type variable",

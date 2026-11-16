@@ -129,6 +129,20 @@ func pythonFieldType(field schema.Field, nestedTypeName string) (pythonFieldLowe
 		}
 		result.Type = nestedTypeName
 		return result, nil
+	case schema.List:
+		if field.Items == nil || field.Items.Kind != schema.String {
+			return pythonFieldLowering{}, fmt.Errorf("list field %q requires supported string items", field.Name)
+		}
+		item, err := pythonFieldType(*field.Items, "")
+		if err != nil {
+			return pythonFieldLowering{}, err
+		}
+		if len(item.Arguments) == 0 {
+			result.Type = "list[" + item.Type + "]"
+			return result, nil
+		}
+		result.Type = "list[Annotated[" + item.Type + ", Field(" + join(item.Arguments, ", ") + ")]]"
+		return result, nil
 	case schema.Number:
 		return pythonFieldLowering{}, fmt.Errorf("number fields are not supported by the Python backend yet")
 	default:

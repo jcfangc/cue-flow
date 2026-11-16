@@ -58,7 +58,7 @@ func writePrelude(output *bytes.Buffer, options backend.GenerateOptions) {
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, Protocol, TypeVar
+from typing import Annotated, Generic, Protocol, TypeVar
 
 `)
 	if options.HasBinding() {

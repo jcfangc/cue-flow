@@ -25,6 +25,7 @@ const (
 	jsonPatternKeyword              = "pattern"
 	jsonMinLengthKeyword            = "minLength"
 	jsonMaxLengthKeyword            = "maxLength"
+	jsonItemsKeyword                = "items"
 	jsonMinimumKeyword              = "minimum"
 	jsonMaximumKeyword              = "maximum"
 	jsonNotKeyword                  = "not"
@@ -39,6 +40,7 @@ const (
 	Number  Kind = "number"
 	Boolean Kind = "boolean"
 	Object  Kind = "object"
+	List    Kind = "array"
 )
 
 type Message struct {
@@ -57,6 +59,7 @@ type Field struct {
 	Minimum     *string
 	Maximum     *string
 	Fields      []Field
+	Items       *Field
 }
 
 type jsonNotConstraint struct {
@@ -163,6 +166,7 @@ func lowerField(
 	var schema struct {
 		Type                 string                     `json:"type"`
 		Properties           map[string]json.RawMessage `json:"properties"`
+		Items                json.RawMessage            `json:"items"`
 		Required             []string                   `json:"required"`
 		AdditionalProperties *bool                      `json:"additionalProperties"`
 		Pattern              string                     `json:"pattern"`
@@ -179,6 +183,7 @@ func lowerField(
 		jsonTypeKeyword: {}, jsonPatternKeyword: {}, jsonMinLengthKeyword: {}, jsonMaxLengthKeyword: {},
 		jsonMinimumKeyword: {}, jsonMaximumKeyword: {}, jsonNotKeyword: {}, jsonTitleKeyword: {}, jsonDescriptionKeyword: {},
 		jsonPropertiesKeyword: {}, jsonRequiredKeyword: {}, jsonAdditionalPropertiesKeyword: {},
+		jsonItemsKeyword: {},
 	}, fmt.Sprintf("field %q constraint", name)); err != nil {
 		return Field{}, err
 	}
@@ -207,6 +212,19 @@ func lowerField(
 		}
 		field.Fields = nested.Fields
 	}
+	if field.Kind == List {
+		if len(schema.Items) == 0 {
+			return Field{}, fmt.Errorf("list field %q must declare an item schema", name)
+		}
+		item, err := lowerField(name+"[]", schema.Items, true, definitions, resolving)
+		if err != nil {
+			return Field{}, fmt.Errorf("list field %q item: %w", name, err)
+		}
+		if item.Kind != String {
+			return Field{}, fmt.Errorf("list field %q only supports string items yet", name)
+		}
+		field.Items = &item
+	}
 	return field, nil
 }
 
@@ -227,6 +245,10 @@ func validateFieldConstraint(field *Field, minimum, maximum *json.Number, not *j
 	case Object:
 		if field.Pattern != "" || field.MinLength != nil || field.MaxLength != nil || minimum != nil || maximum != nil || not != nil {
 			return fmt.Errorf("object field %q has unsupported scalar constraints", field.Name)
+		}
+	case List:
+		if field.Pattern != "" || field.MinLength != nil || field.MaxLength != nil || minimum != nil || maximum != nil || not != nil {
+			return fmt.Errorf("list field %q has unsupported scalar constraints", field.Name)
 		}
 	default:
 		return fmt.Errorf("field %q has unsupported JSON Schema type %q", field.Name, field.Kind)
